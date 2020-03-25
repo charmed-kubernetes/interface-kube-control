@@ -45,6 +45,9 @@ class KubeControlRequirer(Endpoint):
         toggle_flag(
             self.expand_name('{endpoint_name}.cohort_keys.available'),
             self.is_joined and self.cohort_keys)
+        toggle_flag(
+            self.expand_name('{endpoint_name}.default_cni.available'),
+            self.is_joined and self.get_default_cni() is not None)
 
     def get_auth_credentials(self, user):
         """
@@ -138,3 +141,9 @@ class KubeControlRequirer(Endpoint):
         The cohort snapshot keys sent by the masters.
         """
         return self.all_joined_units.received['cohort-keys']
+
+    def get_default_cni(self):
+        """
+        Default CNI network to use.
+        """
+        return self.all_joined_units.received['default-cni']
