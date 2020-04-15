@@ -13,6 +13,8 @@
 from charms.reactive import (
     Endpoint,
     toggle_flag,
+    set_flag,
+    data_changed
 )
 
 from charmhelpers.core import (
@@ -31,9 +33,12 @@ class KubeControlProvider(Endpoint):
     def manage_flags(self):
         toggle_flag(self.expand_name('{endpoint_name}.connected'),
                     self.is_joined)
-        hookenv.log('Checking for gpu-enabled workers')
         toggle_flag(self.expand_name('{endpoint_name}.gpu.available'),
                     self.is_joined and self._get_gpu())
+        requests_data_id = self.expand_name('{endpoint_name}.requests')
+        requests = self.auth_user()
+        if data_changed(requests_data_id, requests):
+            set_flag(self.expand_name('{endpoint_name}.requests.changed'))
 
     def set_dns(self, port, domain, sdn_ip, enable_kube_dns):
         """
@@ -64,6 +69,7 @@ class KubeControlProvider(Endpoint):
                   'group': unit.received_raw.get('auth_group')})
             )
 
+        requests.sort()
         return requests
 
     def sign_auth_request(self, scope, user, kubelet_token, proxy_token,
