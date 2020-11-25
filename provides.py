@@ -96,6 +96,15 @@ class KubeControlProvider(Endpoint):
                 'creds': all_creds
             })
 
+    def clear_creds(self):
+        """
+        Clear creds from the relation. This is used by non-leader units to stop
+        advertising creds so that the leader can assume full control of them.
+        """
+        DB.unset('creds')
+        for relation in self.relations:
+            relation.to_publish_raw['creds'] = ''
+
     def _get_gpu(self):
         """
         Return True if any remote worker is gpu-enabled.
