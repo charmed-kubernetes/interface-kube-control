@@ -1,17 +1,14 @@
 import json
-from collections import namedtuple
 
-from ops import CharmBase, Relation, Unit
-from .model import Creds
+from .model import AuthRequest, Creds, Label, Taint
+from ops import CharmBase, Relation, SecretNotFoundError, Unit
 from typing import List
-
-AuthRequest = namedtuple("KubeControlAuthRequest", ["unit", "user", "group"])
 
 
 class KubeControlProvides:
     """Implements the Provides side of the kube-control interface."""
 
-    def __init__(self, charm: CharmBase, endpoint: str):
+    def __init__(self, charm: CharmBase, endpoint: str = "kube-control", schemas="0,1"):
         self.charm = charm
         self.endpoint = endpoint
 
@@ -19,11 +16,12 @@ class KubeControlProvides:
     def auth_requests(self) -> List[AuthRequest]:
         """Return a list of authentication requests from related units."""
         requests = [
-            AuthRequest(unit=unit.name, user=user, group=group)
+            request
             for relation in self.relations
             for unit in relation.units
-            if (user := relation.data[unit].get("kubelet_user"))
-            and (group := relation.data[unit].get("auth_group"))
+            if (request := AuthRequest(unit=unit.name, **relation.data[unit]))
+            and request.user
+            and request.group
         ]
         requests.sort()
         return requests
@@ -112,30 +110,72 @@ class KubeControlProvides:
 
     def set_labels(self, labels) -> None:
         """Send the Juju config labels of the control-plane."""
-        value = json.dumps(labels)
+        labels = [str(_) for _ in labels if Label.validate(_)]
+        dedup = sorted(set(labels))
+        value = json.dumps(dedup)
         for relation in self.relations:
             relation.data[self.unit]["labels"] = value
 
     def set_taints(self, taints) -> None:
         """Send the Juju config taints of the control-plane."""
-        value = json.dumps(taints)
+        taints = [str(_) for _ in taints if Taint.validate(_)]
+        dedup = sorted(set(taints))
+        value = json.dumps(dedup)
         for relation in self.relations:
             relation.data[self.unit]["taints"] = value
 
+    def refresh_secret_content(self, label, content, description=None):
+        """Refresh the content of a secret."""
+        try:
+            secret = self.charm.model.get_secret(label=label)
+            if secret.get_content() != content:
+                secret.set_content(content)
+        except SecretNotFoundError:
+            secret = self.charm.model.add_secret(
+                content, label=label, description=description
+            )
+        return secret
+
     def sign_auth_request(
-        self, request, client_token, kubelet_token, proxy_token
+        self, request: AuthRequest, client_token, kubelet_token, proxy_token
     ) -> None:
         """Send authorization tokens to the requesting unit."""
         creds = {}
         for relation in self.relations:
             creds.update(json.loads(relation.data[self.unit].get("creds", "{}")))
-        creds[request.user] = Creds(
-            client_token=client_token,
-            kubelet_token=kubelet_token,
-            proxy_token=proxy_token,
-            scope=request.unit,
-        ).dict()
 
+        if not request.schema_vers:
+            tokens = Creds(
+                client_token=client_token,
+                kubelet_token=kubelet_token,
+                proxy_token=proxy_token,
+                scope=request.unit,
+            )
+        elif max(request.schema_vers) == 1:
+            # Requesting unit can use schema 1, use juju secrets
+            content = {
+                "client-token": client_token,
+                "kubelet-token": kubelet_token,
+                "proxy-token": proxy_token,
+            }
+            label = f"{request.user}-creds"
+            description = f"Credentials for {request.user}"
+            secret = self.refresh_secret_content(label, content, description)
+            unit = self.charm.model.get_unit(request.unit)
+            secret.grant(relation, unit=unit)
+
+            tokens = Creds(
+                client_token="",
+                kubelet_token="",
+                proxy_token="",
+                scope=request.unit,
+            )
+            tokens.secret_id = secret.id
+
+        creds[request.user] = {
+            "scope": request.unit,
+            **tokens.dict(by_alias=True, exclude_none=True),
+        }
         value = json.dumps(creds)
         for relation in self.relations:
             relation.data[self.unit]["creds"] = value

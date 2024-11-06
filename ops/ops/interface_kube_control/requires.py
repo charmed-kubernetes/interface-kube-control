@@ -10,11 +10,11 @@ import base64
 import logging
 from os import PathLike
 from pathlib import Path
-from typing import Optional, Mapping, List
+from typing import Dict, Optional, Mapping, List
 
 import yaml
 from backports.cached_property import cached_property
-from .model import Data, Taint, Label
+from .model import AuthRequest, Creds, Data, Taint, Label
 from pydantic import ValidationError
 
 from ops.charm import CharmBase, RelationBrokenEvent
@@ -29,9 +29,13 @@ class KubeControlRequirer(Object):
     Implements the requirer side of the kube-control interface.
     """
 
-    def __init__(self, charm: CharmBase, endpoint: str = "kube-control"):
+    def __init__(self, charm: CharmBase, endpoint: str = "kube-control", schemas="0,1"):
         super().__init__(charm, f"relation-{endpoint}")
         self.endpoint = endpoint
+        # comma-separated set of schemas to advertise support
+        # schema 0 -- same as unschema'd
+        # schema 1 -- signals support for credentials in juju secrets
+        self.schema_ver = [int(v) for v in schemas.split(",")]
 
     @cached_property
     def relation(self) -> Optional[Relation]:
@@ -122,14 +126,14 @@ class KubeControlRequirer(Object):
         if not self.is_ready:
             return None
 
-        creds = self._data.creds
+        users: Dict[str, Creds] = self._data.creds
 
-        if user in creds:
+        if creds := users.get(user):
             return {
                 "user": user,
-                "kubelet_token": creds[user].kubelet_token,
-                "proxy_token": creds[user].proxy_token,
-                "client_token": creds[user].client_token,
+                "kubelet_token": creds.load_kubelet_token(self.model, user),
+                "proxy_token": creds.load_proxy_token(self.model, user),
+                "client_token": creds.load_client_token(self.model, user),
             }
         return None
 
@@ -156,21 +160,24 @@ class KubeControlRequirer(Object):
         )
 
     def set_auth_request(self, user, group="system:nodes") -> None:
-        """Notify contol-plane that we are requesting auth.
+        """Notify control-plane that we are requesting auth.
 
         Also, use this hostname for the kubelet system account.
 
         @params user   - user requesting authentication
-        @params groups - Determines the level of eleveted privileges of the
+        @params groups - Determines the level of elevated privileges of the
                          requested user.
                          Can be overridden to request sudo level access on the
                          cluster via changing to
-                         system:masters.  #wokeignore:rule=master
+                         system:masters.  # wokeignore:rule=master
         """
         if self.relation:
-            self.relation.data[self.model.unit].update(
-                dict(kubelet_user=user, auth_group=group)
+            req = AuthRequest(kubelet_user=user, auth_group=group)
+            req.schema_vers = self.schema_ver
+            log.info(
+                f"Auth Req for {user} with group {group} on schema {self.schema_ver}"
             )
+            self.relation.data[self.model.unit].update(req.dict(exclude_none=True))
 
     def set_gpu(self, enabled=True):
         """

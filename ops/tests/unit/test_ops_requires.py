@@ -77,8 +77,35 @@ def test_is_ready_success(kube_control_requirer, relation_data):
         assert kube_control_requirer.is_ready is True
 
 
-def test_create_kubeconfig(kube_control_requirer, relation_data, mock_ca_cert, tmpdir):
-    unit_name = kube_control_requirer.model.unit.name
+def test_set_auth_request(kube_control_requirer):
+    with mock.patch.object(
+        KubeControlRequirer, "relation", new_callable=mock.PropertyMock
+    ) as mock_prop:
+        relation = mock_prop.return_value
+        kube_control_requirer.set_auth_request("ubuntu", "admin")
+        relation.data[kube_control_requirer.model.unit].update.assert_called_once_with(
+            {
+                "kubelet_user": "ubuntu",
+                "auth_group": "admin",
+                "schema_vers": "[0, 1]",
+            }
+        )
+
+
+@pytest.mark.parametrize("k8s_user", ["system:node:node-1", "system:node:node-2"])
+def test_create_kubeconfig(
+    k8s_user, kube_control_requirer, relation_data, mock_ca_cert, tmpdir
+):
+    mock_get_secret = kube_control_requirer.model.get_secret
+    mock_get_content = mock_get_secret.return_value.get_content
+    via_juju_secret = "node-2" in k8s_user
+    if via_juju_secret:
+        mock_get_content.return_value = {
+            "client-token": "admin::redacted",
+            "kubelet-token": "admin::redacted",
+            "proxy-token": "admin::redacted",
+        }
+
     with mock.patch.object(
         KubeControlRequirer, "relation", new_callable=mock.PropertyMock
     ) as mock_prop:
@@ -91,7 +118,7 @@ def test_create_kubeconfig(kube_control_requirer, relation_data, mock_ca_cert, t
         # First run creates a new file
         assert not kube_config.exists()
         kube_control_requirer.create_kubeconfig(
-            mock_ca_cert, kube_config, "ubuntu", unit_name
+            mock_ca_cert, kube_config, "ubuntu", k8s_user
         )
         config = yaml.safe_load(kube_config.read_text())
         assert config["kind"] == "Config"
@@ -100,10 +127,19 @@ def test_create_kubeconfig(kube_control_requirer, relation_data, mock_ca_cert, t
         # Second call alters existing file
         kube_config.write_text("")
         kube_control_requirer.create_kubeconfig(
-            mock_ca_cert, kube_config, "ubuntu", unit_name
+            mock_ca_cert, kube_config, "ubuntu", k8s_user
         )
         config = yaml.safe_load(kube_config.read_text())
         assert config["kind"] == "Config"
+
+    if via_juju_secret:
+        mock_get_secret.assert_called_with(
+            id="abcd::1234", label="system:node:node-2-creds"
+        )
+        mock_get_content.assert_called_with(refresh=True)
+    else:
+        mock_get_secret.assert_not_called()
+        mock_get_content.assert_not_called()
 
 
 def test_taints_and_labels(kube_control_requirer, relation_data):

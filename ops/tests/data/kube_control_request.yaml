@@ -1,0 +1,12 @@
+---
+unit: requirer/0
+data:
+  kubelet_user: system:node:node-1
+  auth_group: system:nodes
+---
+unit: requirer/1
+data:
+  kubelet_user: system:node:node-2
+  auth_group: system:nodes
+  schema_vers: '[0, 1]'
+
