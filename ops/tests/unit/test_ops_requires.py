@@ -13,7 +13,7 @@ from ops.interface_kube_control import KubeControlRequirer
 def kube_control_requirer():
     mock_charm = mock.MagicMock(auto_spec=CharmBase)
     mock_charm.framework.model.unit.name = "test/0"
-    yield KubeControlRequirer(mock_charm)
+    yield KubeControlRequirer(mock_charm, schemas="0,1")
 
 
 @pytest.fixture(autouse=True)

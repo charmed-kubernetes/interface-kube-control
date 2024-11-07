@@ -31,7 +31,7 @@ class KubeControlRequirer(Object):
     Implements the requirer side of the kube-control interface.
     """
 
-    def __init__(self, charm: CharmBase, endpoint: str = "kube-control", schemas="0,1"):
+    def __init__(self, charm: CharmBase, endpoint: str = "kube-control", schemas="0"):
         super().__init__(charm, f"relation-{endpoint}")
         self.endpoint = endpoint
         # comma-separated set of schemas to advertise support
