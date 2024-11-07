@@ -58,6 +58,20 @@ class KubeControlProvides:
         for relation in self.relations:
             relation.data[self.unit]["api-endpoints"] = endpoints
 
+    def set_ca_certificate(self, ca_certificate: str) -> None:
+        """Send the CA certificate to the remote units.
+
+        Args:
+            ca_certificate str: The CA certificate in PEM format.
+        """
+        content = {"ca-certificate": ca_certificate}
+        secret = self.refresh_secret_content(
+            "ca-certificate", content, "Kubernetes API endpoint CA certificate"
+        )
+        for relation in self.relations:
+            secret.grant(relation)
+            relation.data[self.unit]["ca-certificate-secret-id"] = secret.id
+
     def set_cluster_name(self, cluster_name) -> None:
         """Send the cluster name to the remote units."""
         for relation in self.relations:
@@ -131,7 +145,7 @@ class KubeControlProvides:
             if secret.get_content() != content:
                 secret.set_content(content)
         except SecretNotFoundError:
-            secret = self.charm.model.add_secret(
+            secret = self.charm.app.add_secret(
                 content, label=label, description=description
             )
         return secret

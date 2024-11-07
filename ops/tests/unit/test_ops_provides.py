@@ -138,6 +138,25 @@ def test_is_ready_no_relation(kube_control_provider):
 
 
 @mock.patch("ops.interface_kube_control.KubeControlProvides.refresh_secret_content")
+def test_set_ca_certificate(refresh_secret_content, kube_control_provider):
+    with mock_relations(2):
+        mock_secret = refresh_secret_content.return_value
+        mock_secret.id = "abcd::1234"
+        data = Path("tests/data/test-ca-cert.pem").read_text()
+        kube_control_provider.set_ca_certificate(data)
+        for relation in kube_control_provider.relations:
+            assert (
+                relation.data[kube_control_provider.unit]["ca-certificate-secret-id"]
+                == "abcd::1234"
+            )
+        refresh_secret_content.assert_called_once()
+        (label, content, description), _ = refresh_secret_content.call_args
+        assert label == "ca-certificate"
+        assert content == {"ca-certificate": data}
+        assert description == "Kubernetes API endpoint CA certificate"
+
+
+@mock.patch("ops.interface_kube_control.KubeControlProvides.refresh_secret_content")
 def test_sign_auth_requests(
     refresh_secret_content, kube_control_provider, relation_data
 ):

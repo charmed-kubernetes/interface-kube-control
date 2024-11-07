@@ -92,8 +92,40 @@ def test_set_auth_request(kube_control_requirer):
         )
 
 
+@pytest.mark.parametrize("k8s_user", ["system:node:node-1"])
+def test_create_kubeconfig_from_ca_cert_relation(
+    k8s_user, kube_control_requirer, relation_data, tmpdir
+):
+    mock_get_secret = kube_control_requirer.model.get_secret
+    mock_get_content = mock_get_secret.return_value.get_content
+    mock_get_content.return_value = {
+        "ca-certificate": Path("tests/data/test-ca-cert.pem").read_text(),
+    }
+    with mock.patch.object(
+        KubeControlRequirer, "relation", new_callable=mock.PropertyMock
+    ) as mock_prop:
+        relation = mock_prop.return_value
+        relation_data["ca-certificate-secret-id"] = "abcd::1234"
+        relation.units = ["remote/0"]
+        relation.data = {"remote/0": relation_data}
+
+        kube_config = Path(tmpdir) / "kube_config"
+
+        # First run creates a new file
+        assert not kube_config.exists()
+        kube_control_requirer.create_kubeconfig(
+            tmpdir / "does-not-exist", kube_config, "ubuntu", k8s_user
+        )
+        config = yaml.safe_load(kube_config.read_text())
+        assert config["kind"] == "Config"
+        assert config["users"][0]["user"]["token"] == "admin::redacted"
+        assert config["clusters"][0]["cluster"][
+            "certificate-authority-data"
+        ].startswith("LS0tLS1C")
+
+
 @pytest.mark.parametrize("k8s_user", ["system:node:node-1", "system:node:node-2"])
-def test_create_kubeconfig(
+def test_create_kubeconfig_from_ca_cert_file(
     k8s_user, kube_control_requirer, relation_data, mock_ca_cert, tmpdir
 ):
     mock_get_secret = kube_control_requirer.model.get_secret

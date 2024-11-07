@@ -22,6 +22,8 @@ from ops.framework import Object
 from ops.model import Relation
 
 log = logging.getLogger("KubeControlRequirer")
+JUJU_CLUSTER = "juju-cluster"
+JUJU_CONTEXT = "juju-context"
 
 
 class KubeControlRequirer(Object):
@@ -80,13 +82,17 @@ class KubeControlRequirer(Object):
     ):
         """Write kubeconfig based on available creds."""
         creds = self.get_auth_credentials(k8s_user)
-
-        cluster = "juju-cluster"
-        context = "juju-context"
         endpoints = self.get_api_endpoints()
         server = endpoints[0] if endpoints else None
         token = creds["client_token"] if creds else None
-        ca_b64 = base64.b64encode(Path(ca).read_bytes()).decode("utf-8")
+
+        if ca_content := self.get_ca_certificate():
+            ca_b64 = base64.b64encode(ca_content).decode("utf-8")
+        elif Path(ca).exists():
+            ca_b64 = base64.b64encode(Path(ca).read_bytes()).decode("utf-8")
+        else:
+            log.error("No CA certificate found")
+            raise FileNotFoundError("No CA certificate found")
 
         # Create the config file with the address of the control-plane server.
         config_contents = {
@@ -99,14 +105,17 @@ class KubeControlRequirer(Object):
                         "certificate-authority-data": ca_b64,
                         "server": server,
                     },
-                    "name": cluster,
+                    "name": JUJU_CLUSTER,
                 }
             ],
             "contexts": [
-                {"context": {"cluster": cluster, "user": user}, "name": context}
+                {
+                    "context": {"cluster": JUJU_CLUSTER, "user": user},
+                    "name": JUJU_CONTEXT,
+                }
             ],
             "users": [{"name": user, "user": {"token": token}}],
-            "current-context": context,
+            "current-context": JUJU_CONTEXT,
         }
         old_kubeconfig = Path(kubeconfig)
         new_kubeconfig = Path(f"{kubeconfig}.new")
@@ -120,6 +129,13 @@ class KubeControlRequirer(Object):
             changed = True
         if changed:
             new_kubeconfig.rename(old_kubeconfig)
+
+    def get_ca_certificate(self) -> Optional[bytes]:
+        """Return the CA certificate in pem format."""
+        if not self.is_ready:
+            return None
+
+        return self._data.ca_certificate(self.model)
 
     def get_auth_credentials(self, user) -> Optional[Mapping[str, str]]:
         """Return the authentication credentials."""

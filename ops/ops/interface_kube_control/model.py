@@ -115,6 +115,7 @@ class Creds(BaseModel):
 
 class Data(BaseModel):
     api_endpoints: Json[List[AnyHttpUrl]] = Field(alias="api-endpoints")
+    ca_certificate_secret_id: Optional[str] = Field(alias="ca-certificate-secret-id")
     cluster_tag: str = Field(alias="cluster-tag")
     cohort_keys: Optional[Json[Dict[str, str]]] = Field(alias="cohort-keys")
     creds: Json[Dict[str, Creds]] = Field(alias="creds")
@@ -127,3 +128,14 @@ class Data(BaseModel):
     registry_location: str = Field(alias="registry-location")
     taints: Optional[Json[List[Taint]]] = Field(alias="taints", default=None)
     labels: Optional[Json[List[Label]]] = Field(alias="labels", default=None)
+
+    def ca_certificate(self, model: ops.Model) -> Optional[bytes]:
+        if not self.ca_certificate_secret_id:
+            return None
+        try:
+            secret = model.get_secret(
+                id=self.ca_certificate_secret_id, label="ca-certificate"
+            )
+            return secret.get_content(refresh=True)["ca-certificate"].encode()
+        except ops.SecretNotFoundError:
+            return None
