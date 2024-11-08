@@ -154,18 +154,15 @@ class KubeControlProvides:
         self, request: AuthRequest, client_token, kubelet_token, proxy_token
     ) -> None:
         """Send authorization tokens to the requesting unit."""
-        creds = {}
+        creds, request_relation = {}, None
+        request_unit = self.charm.model.get_unit(request.unit)
+
         for relation in self.relations:
             creds.update(json.loads(relation.data[self.unit].get("creds", "{}")))
+            if request_unit in relation.units:
+                request_relation = relation
 
-        if not request.schema_vers:
-            tokens = Creds(
-                client_token=client_token,
-                kubelet_token=kubelet_token,
-                proxy_token=proxy_token,
-                scope=request.unit,
-            )
-        elif max(request.schema_vers) == 1:
+        if 1 in request.schema_vers and request_relation:
             # Requesting unit can use schema 1, use juju secrets
             content = {
                 "client-token": client_token,
@@ -175,8 +172,7 @@ class KubeControlProvides:
             label = f"{request.user}-creds"
             description = f"Credentials for {request.user}"
             secret = self.refresh_secret_content(label, content, description)
-            unit = self.charm.model.get_unit(request.unit)
-            secret.grant(relation, unit=unit)
+            secret.grant(request_relation, unit=request_unit)
 
             tokens = Creds(
                 client_token="",
@@ -185,6 +181,13 @@ class KubeControlProvides:
                 scope=request.unit,
             )
             tokens.secret_id = secret.id
+        else:
+            tokens = Creds(
+                client_token=client_token,
+                kubelet_token=kubelet_token,
+                proxy_token=proxy_token,
+                scope=request.unit,
+            )
 
         creds[request.user] = {
             "scope": request.unit,

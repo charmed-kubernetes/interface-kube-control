@@ -40,12 +40,15 @@ def mock_relations(num):
         yield mock_prop
 
 
-def mock_units(relation, data):
+def mock_units(model, relation, data):
+    relation._units_by_name = {}
     for unit_data in data:
         unit = mock.MagicMock()
         unit.name = unit_data["unit"]
+        relation._units_by_name[unit.name] = unit
         relation.data[unit] = unit_data["data"]
         relation.units.append(unit)
+    model.get_unit.side_effect = relation._units_by_name.__getitem__
 
 
 def test_set_default_cni(kube_control_provider):
@@ -162,7 +165,7 @@ def test_sign_auth_requests(
 ):
     with mock_relations(1) as relations:
         relation = relations.return_value[0]
-        mock_units(relation, relation_data)
+        mock_units(kube_control_provider.charm.model, relation, relation_data)
         mock_secret = refresh_secret_content.return_value
         mock_secret.id = "abcd::1234"
 
