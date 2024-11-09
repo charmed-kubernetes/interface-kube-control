@@ -1,8 +1,11 @@
 import json
+import logging
 
 from .model import AuthRequest, Creds, Label, Taint
 from ops import CharmBase, Relation, SecretNotFoundError, Unit
 from typing import List
+
+log = logging.getLogger("KubeControlProvides")
 
 
 class KubeControlProvides:
@@ -69,8 +72,9 @@ class KubeControlProvides:
             "ca-certificate", content, "Kubernetes API endpoint CA certificate"
         )
         for relation in self.relations:
-            secret.grant(relation)
-            relation.data[self.unit]["ca-certificate-secret-id"] = secret.id
+            if secret.id:
+                secret.grant(relation)
+                relation.data[self.unit]["ca-certificate-secret-id"] = secret.id
 
     def set_cluster_name(self, cluster_name) -> None:
         """Send the cluster name to the remote units."""
@@ -142,7 +146,7 @@ class KubeControlProvides:
         """Refresh the content of a secret."""
         try:
             secret = self.charm.model.get_secret(label=label)
-            if secret.get_content() != content:
+            if secret.get_content(refresh=True) != content:
                 secret.set_content(content)
         except SecretNotFoundError:
             secret = self.charm.app.add_secret(
@@ -162,6 +166,13 @@ class KubeControlProvides:
             if request_unit in relation.units:
                 request_relation = relation
 
+        tokens = Creds(
+            client_token=client_token,
+            kubelet_token=kubelet_token,
+            proxy_token=proxy_token,
+            scope=request.unit,
+        )
+
         if 1 in request.schema_vers and request_relation:
             # Requesting unit can use schema 1, use juju secrets
             content = {
@@ -172,27 +183,17 @@ class KubeControlProvides:
             label = f"{request.user}-creds"
             description = f"Credentials for {request.user}"
             secret = self.refresh_secret_content(label, content, description)
-            secret.grant(request_relation, unit=request_unit)
-
-            tokens = Creds(
-                client_token="",
-                kubelet_token="",
-                proxy_token="",
-                scope=request.unit,
-            )
-            tokens.secret_id = secret.id
+            if secret.id:
+                log.info(f"Granting secret {secret.id} to {request_relation.name}")
+                secret.grant(request_relation, unit=request_unit)
+                tokens.client_token = ""
+                tokens.kubelet_token = ""
+                tokens.proxy_token = ""
+                tokens.secret_id = secret.id
+                creds[request.user] = tokens.dict(by_alias=True, exclude_none=True)
         else:
-            tokens = Creds(
-                client_token=client_token,
-                kubelet_token=kubelet_token,
-                proxy_token=proxy_token,
-                scope=request.unit,
-            )
+            creds[request.user] = tokens.dict(by_alias=True, exclude_none=True)
 
-        creds[request.user] = {
-            "scope": request.unit,
-            **tokens.dict(by_alias=True, exclude_none=True),
-        }
         value = json.dumps(creds)
         for relation in self.relations:
             relation.data[self.unit]["creds"] = value
