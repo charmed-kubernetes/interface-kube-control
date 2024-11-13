@@ -148,6 +148,7 @@ class KubeControlProvides:
             secret = self.charm.model.get_secret(label=label)
             if secret.get_content(refresh=True) != content:
                 secret.set_content(content)
+            secret.set_info(description=description, label=label)
         except SecretNotFoundError:
             secret = self.charm.app.add_secret(
                 content, label=label, description=description
