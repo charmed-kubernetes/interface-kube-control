@@ -3,7 +3,7 @@ import logging
 
 from .model import AuthRequest, Creds, Label, Taint
 from ops import CharmBase, Relation, SecretNotFoundError, Unit
-from typing import List
+from typing import Generator, List, Tuple
 
 log = logging.getLogger("KubeControlProvides")
 
@@ -155,6 +155,43 @@ class KubeControlProvides:
             )
         return secret
 
+    def closed_auth_creds(self) -> Generator[Tuple[str, Creds], None, None]:
+        """Revoke tokens for units removed from the relation.
+
+        Example:
+        ```python
+            for user, cred in self.kube_control.closed_auth_creds():
+                log.info("Revoke auth-token for '%s'", user)
+                token = cred.client_token.get_secret_value()
+                kubernetes.remove_auth_token(token)
+        ```
+
+        Yields:
+            Tuple[str, Creds]: The user and creds to be revoked.
+        """
+        creds, unit_names = {}, []
+
+        # Collect creds from all relations
+        for relation in self.relations:
+            creds.update(json.loads(relation.data[self.unit].get("creds", "{}")))
+            unit_names += [u.name for u in relation.units]
+
+        # Revoke creds for units that have been removed
+        for user, cred in dict(**creds).items():
+            data = Creds(**cred)
+            if data.scope not in unit_names:
+                log.info(f"Revoking creds for {user} on unit {data.scope}")
+                creds.pop(user)
+                yield user, data
+                if data.secret_id:
+                    secret = self.charm.model.get_secret(id=data.secret_id)
+                    secret.remove_all_revisions()
+
+        # Publish the updated creds without the revoked units
+        value = json.dumps(creds)
+        for relation in self.relations:
+            relation.data[self.unit]["creds"] = value
+
     def sign_auth_request(
         self, request: AuthRequest, client_token, kubelet_token, proxy_token
     ) -> None:
@@ -187,6 +224,10 @@ class KubeControlProvides:
             if secret.id:
                 log.info(f"Granting secret {secret.id} to {request_relation.name}")
                 secret.grant(request_relation, unit=request_unit)
+                # Intentionally set the tokens to empty strings in order to
+                # be valid credentials for units still receiving these on schema 0
+                # if None, these would be considered missing and the schema 0
+                # parser would assume the relation wasn't ready.
                 tokens.client_token = ""
                 tokens.kubelet_token = ""
                 tokens.proxy_token = ""

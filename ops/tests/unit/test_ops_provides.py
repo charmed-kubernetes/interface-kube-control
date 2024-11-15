@@ -159,6 +159,37 @@ def test_set_ca_certificate(refresh_secret_content, kube_control_provider):
         assert description == "Kubernetes API endpoint CA certificate"
 
 
+def test_close_auth_requests(kube_control_provider, relation_data):
+    with mock_relations(1) as relations:
+        relation = relations.return_value[0]
+        mock_units(kube_control_provider.charm.model, relation, relation_data)
+        get_secret = kube_control_provider.charm.model.get_secret
+        relation.data[kube_control_provider.unit]["creds"] = json.dumps(
+            {
+                "system:node:node-3": {
+                    "scope": "requirer/2",
+                    "client_token": "client",
+                    "kubelet_token": "kubelet",
+                    "proxy_token": "proxy",
+                },
+                "system:node:node-4": {
+                    "scope": "requirer/3",
+                    "secret-id": "abcd::1234",
+                    "client_token": "",
+                    "kubelet_token": "",
+                    "proxy_token": "",
+                },
+            }
+        )
+        for user, creds in kube_control_provider.closed_auth_creds():
+            assert user in ["system:node:node-3", "system:node:node-4"]
+            assert creds.scope in ["requirer/2", "requirer/3"]
+
+        get_secret.assert_called_once_with(id="abcd::1234")
+        get_secret.return_value.remove_all_revisions.assert_called_once()
+        assert relation.data[kube_control_provider.unit]["creds"] == "{}"
+
+
 @mock.patch("ops.interface_kube_control.KubeControlProvides.refresh_secret_content")
 def test_sign_auth_requests(
     refresh_secret_content, kube_control_provider, relation_data
