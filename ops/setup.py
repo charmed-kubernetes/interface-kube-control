@@ -23,7 +23,7 @@ setup(
     name="ops.interface_kube_control",
     packages=find_namespace_packages(include=["ops.*"]),
     url="https://github.com/juju-solutions/interface-kube-control/blob/HEAD/ops",
-    version="0.1.0",
+    version="0.2.0",
     zip_safe=True,
     install_requires=[
         "backports.cached-property",

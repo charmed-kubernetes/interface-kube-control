@@ -12,11 +12,18 @@ cohort-keys: |-
   }
 creds: |-
   {
-    "test/0": {
+    "system:node:node-1": {
       "client_token": "admin::redacted",
       "kubelet_token": "test/0::redacted",
       "proxy_token": "kube-proxy::redacted", 
-      "scope": "test/0"
+      "scope": "kubernetes-worker/0"
+    },
+    "system:node:node-2": {
+      "client_token": "",
+      "kubelet_token": "",
+      "proxy_token": "", 
+      "secret-id": "abcd::1234",
+      "scope": "kubernetes-worker/1"
     }
   }
 default-cni: '""'

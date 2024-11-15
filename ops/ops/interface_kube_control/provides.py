@@ -1,17 +1,17 @@
 import json
-from collections import namedtuple
+import logging
 
-from ops import CharmBase, Relation, Unit
-from .model import Creds
-from typing import List
+from .model import AuthRequest, Creds, Label, Taint
+from ops import CharmBase, Relation, SecretNotFoundError, Unit
+from typing import Generator, List, Tuple
 
-AuthRequest = namedtuple("KubeControlAuthRequest", ["unit", "user", "group"])
+log = logging.getLogger("KubeControlProvides")
 
 
 class KubeControlProvides:
     """Implements the Provides side of the kube-control interface."""
 
-    def __init__(self, charm: CharmBase, endpoint: str):
+    def __init__(self, charm: CharmBase, endpoint: str = "kube-control", schemas="0,1"):
         self.charm = charm
         self.endpoint = endpoint
 
@@ -19,11 +19,12 @@ class KubeControlProvides:
     def auth_requests(self) -> List[AuthRequest]:
         """Return a list of authentication requests from related units."""
         requests = [
-            AuthRequest(unit=unit.name, user=user, group=group)
+            request
             for relation in self.relations
             for unit in relation.units
-            if (user := relation.data[unit].get("kubelet_user"))
-            and (group := relation.data[unit].get("auth_group"))
+            if (request := AuthRequest(unit=unit.name, **relation.data[unit]))
+            and request.user
+            and request.group
         ]
         requests.sort()
         return requests
@@ -59,6 +60,21 @@ class KubeControlProvides:
         endpoints = json.dumps(endpoints)
         for relation in self.relations:
             relation.data[self.unit]["api-endpoints"] = endpoints
+
+    def set_ca_certificate(self, ca_certificate: str) -> None:
+        """Send the CA certificate to the remote units.
+
+        Args:
+            ca_certificate str: The CA certificate in PEM format.
+        """
+        content = {"ca-certificate": ca_certificate}
+        secret = self.refresh_secret_content(
+            "ca-certificate", content, "Kubernetes API endpoint CA certificate"
+        )
+        for relation in self.relations:
+            if secret.id:
+                secret.grant(relation)
+                relation.data[self.unit]["ca-certificate-secret-id"] = secret.id
 
     def set_cluster_name(self, cluster_name) -> None:
         """Send the cluster name to the remote units."""
@@ -112,29 +128,113 @@ class KubeControlProvides:
 
     def set_labels(self, labels) -> None:
         """Send the Juju config labels of the control-plane."""
-        value = json.dumps(labels)
+        labels = [str(_) for _ in labels if Label.validate(_)]
+        dedup = sorted(set(labels))
+        value = json.dumps(dedup)
         for relation in self.relations:
             relation.data[self.unit]["labels"] = value
 
     def set_taints(self, taints) -> None:
         """Send the Juju config taints of the control-plane."""
-        value = json.dumps(taints)
+        taints = [str(_) for _ in taints if Taint.validate(_)]
+        dedup = sorted(set(taints))
+        value = json.dumps(dedup)
         for relation in self.relations:
             relation.data[self.unit]["taints"] = value
 
-    def sign_auth_request(
-        self, request, client_token, kubelet_token, proxy_token
-    ) -> None:
-        """Send authorization tokens to the requesting unit."""
-        creds = {}
+    def refresh_secret_content(self, label, content, description=None):
+        """Refresh the content of a secret."""
+        try:
+            secret = self.charm.model.get_secret(label=label)
+            if secret.get_content(refresh=True) != content:
+                secret.set_content(content)
+            secret.set_info(description=description, label=label)
+        except SecretNotFoundError:
+            secret = self.charm.app.add_secret(
+                content, label=label, description=description
+            )
+        return secret
+
+    def closed_auth_creds(self) -> Generator[Tuple[str, Creds], None, None]:
+        """Revoke tokens for units removed from the relation.
+
+        Example:
+        ```python
+            for user, cred in self.kube_control.closed_auth_creds():
+                log.info("Revoke auth-token for '%s'", user)
+                token = cred.client_token.get_secret_value()
+                kubernetes.remove_auth_token(token)
+        ```
+
+        Yields:
+            Tuple[str, Creds]: The user and creds to be revoked.
+        """
+        creds, unit_names = {}, []
+
+        # Collect creds from all relations
         for relation in self.relations:
             creds.update(json.loads(relation.data[self.unit].get("creds", "{}")))
-        creds[request.user] = Creds(
+            unit_names += [u.name for u in relation.units]
+
+        # Revoke creds for units that have been removed
+        for user, cred in dict(**creds).items():
+            data = Creds(**cred)
+            if data.scope not in unit_names:
+                log.info(f"Revoking creds for {user} on unit {data.scope}")
+                creds.pop(user)
+                yield user, data
+                if data.secret_id:
+                    secret = self.charm.model.get_secret(id=data.secret_id)
+                    secret.remove_all_revisions()
+
+        # Publish the updated creds without the revoked units
+        value = json.dumps(creds)
+        for relation in self.relations:
+            relation.data[self.unit]["creds"] = value
+
+    def sign_auth_request(
+        self, request: AuthRequest, client_token, kubelet_token, proxy_token
+    ) -> None:
+        """Send authorization tokens to the requesting unit."""
+        creds, request_relation = {}, None
+        request_unit = self.charm.model.get_unit(request.unit)
+
+        for relation in self.relations:
+            creds.update(json.loads(relation.data[self.unit].get("creds", "{}")))
+            if request_unit in relation.units:
+                request_relation = relation
+
+        tokens = Creds(
             client_token=client_token,
             kubelet_token=kubelet_token,
             proxy_token=proxy_token,
             scope=request.unit,
-        ).dict()
+        )
+
+        if 1 in request.schema_vers and request_relation:
+            # Requesting unit can use schema 1, use juju secrets
+            content = {
+                "client-token": client_token,
+                "kubelet-token": kubelet_token,
+                "proxy-token": proxy_token,
+            }
+            label = f"{request.user}-creds"
+            description = f"Credentials for {request.user}"
+            secret = self.refresh_secret_content(label, content, description)
+            if secret.id:
+                log.info(f"Granting secret {secret.id} to {request_relation.name}")
+                secret.grant(request_relation, unit=request_unit)
+                # Intentionally set the tokens to empty strings in order to
+                # be valid credentials for units still receiving these on schema 0
+                # if None, these would be considered missing and the schema 0
+                # parser would assume the relation wasn't ready.
+                tokens.client_token = ""
+                tokens.kubelet_token = ""
+                tokens.proxy_token = ""
+                tokens.secret_id = secret.id
+                creds[request.user] = tokens.dict(by_alias=True, exclude_none=True)
+        else:
+            creds[request.user] = tokens.dict(by_alias=True, exclude_none=True)
 
         value = json.dumps(creds)
         for relation in self.relations:
