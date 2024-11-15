@@ -129,7 +129,7 @@ class Data(BaseModel):
     taints: Optional[Json[List[Taint]]] = Field(alias="taints", default=None)
     labels: Optional[Json[List[Label]]] = Field(alias="labels", default=None)
 
-    def ca_certificate(self, model: ops.Model) -> Optional[bytes]:
+    def get_ca_certificate(self, model: ops.Model) -> Optional[bytes]:
         if not self.ca_certificate_secret_id:
             return None
         try:

@@ -135,7 +135,7 @@ class KubeControlRequirer(Object):
         if not self.is_ready:
             return None
 
-        return self._data.ca_certificate(self.model)
+        return self._data.get_ca_certificate(self.model)
 
     def get_auth_credentials(self, user) -> Optional[Mapping[str, str]]:
         """Return the authentication credentials."""
