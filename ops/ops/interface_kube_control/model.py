@@ -1,9 +1,15 @@
-from pydantic import Field, AnyHttpUrl, BaseModel, Json
+from pydantic import Field, AnyHttpUrl, BaseModel, Json, SecretStr
 import json
 import ops
 from typing import List, Dict, Optional
 import re
 
+from interface_kube_control.consts import (
+    SECRET_LABEL_FORMAT,
+    CLIENT_TOKEN_SECERT_FIELD,
+    KUBELET_TOKEN_SECRET_FIELD,
+    PROXY_TOKEN_SECRET_FIELD,
+)
 
 class _ValidatedStr:
     def __init__(self, value, *groups) -> None:
@@ -94,22 +100,22 @@ class Creds(BaseModel):
     secret_id: Optional[str] = Field(alias="secret-id", default=None)
 
     def _get_secret_content(self, model: ops.Model, user: str) -> Dict[str, str]:
-        secret = model.get_secret(id=self.secret_id, label=f"{user}-creds")
+        secret = model.get_secret(id=self.secret_id, label=SECRET_LABEL_FORMAT.format(user=user))
         return secret.get_content(refresh=True)
 
     def load_client_token(self, model: ops.Model, user: str) -> str:
         if self.secret_id:
-            return self._get_secret_content(model, user)["client-token"]
+            return self._get_secret_content(model, user)[CLIENT_TOKEN_SECERT_FIELD]
         return self.client_token
 
     def load_kubelet_token(self, model, user: str) -> str:
         if self.secret_id:
-            return self._get_secret_content(model, user)["kubelet-token"]
+            return self._get_secret_content(model, user)[KUBELET_TOKEN_SECRET_FIELD]
         return self.kubelet_token
 
     def load_proxy_token(self, model, user: str) -> str:
         if self.secret_id:
-            return self._get_secret_content(model, user)["proxy-token"]
+            return self._get_secret_content(model, user)[PROXY_TOKEN_SECRET_FIELD]
         return self.proxy_token
 
 
@@ -139,3 +145,18 @@ class Data(BaseModel):
             return secret.get_content(refresh=True)["ca-certificate"].encode()
         except ops.SecretNotFoundError:
             return None
+
+class AuthCredentials(BaseModel):
+    """
+    AuthCredentials is a Pydantic model that holds authentication credentials for accessing a Kubernetes cluster.
+
+    Attributes:
+        user (str): The username for authentication.
+        kubelet_token (SecretStr): The token used for authenticating to the kubelet.
+        proxy_token (SecretStr): The token used for authenticating to the proxy.
+        client_token (SecretStr): The token used for authenticating to the client.
+    """
+    user: str
+    kubelet_token: SecretStr
+    proxy_token: SecretStr
+    client_token: SecretStr

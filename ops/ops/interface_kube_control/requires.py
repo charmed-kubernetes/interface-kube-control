@@ -14,8 +14,8 @@ from typing import Dict, Optional, Mapping, List
 
 import yaml
 from backports.cached_property import cached_property
-from .model import AuthRequest, Creds, Data, Taint, Label
-from pydantic import ValidationError
+from .model import AuthCredentials, AuthRequest, Creds, Data, Taint, Label
+from pydantic import SecretStr, ValidationError
 
 from ops.charm import CharmBase, RelationBrokenEvent
 from ops.framework import Object
@@ -84,7 +84,7 @@ class KubeControlRequirer(Object):
         creds = self.get_auth_credentials(k8s_user)
         endpoints = self.get_api_endpoints()
         server = endpoints[0] if endpoints else None
-        token = creds["client_token"] if creds else None
+        token = creds.client_token if creds else None
 
         if ca_content := self.get_ca_certificate():
             ca_b64 = base64.b64encode(ca_content).decode("utf-8")
@@ -137,23 +137,23 @@ class KubeControlRequirer(Object):
 
         return self._data.get_ca_certificate(self.model)
 
-    def get_auth_credentials(self, user) -> Optional[Mapping[str, str]]:
+    def get_auth_credentials(self, user) -> Optional[AuthCredentials]:
         """Return the authentication credentials."""
         if not self.is_ready:
             return None
 
-        users: Dict[str, Creds] = self._data.creds
+        users_to_creds: Dict[str, Creds] = self._data.creds
 
-        if creds := users.get(user):
-            return {
-                "user": user,
-                "kubelet_token": creds.load_kubelet_token(self.model, user),
-                "proxy_token": creds.load_proxy_token(self.model, user),
-                "client_token": creds.load_client_token(self.model, user),
-            }
+        if creds := users_to_creds.get(user):
+            return AuthCredentials(
+                user=user,
+                kubelet_token=SecretStr(creds.load_kubelet_token(self.model, user)),
+                proxy_token=SecretStr(creds.load_proxy_token(self.model, user)),
+                client_token=SecretStr(creds.load_client_token(self.model, user)),
+            )
         return None
 
-    def get_dns(self) -> Mapping[str, str]:
+    def get_dns(self) -> Mapping[str, str|None]:
         """
         Return DNS info provided by the control-plane.
         """

@@ -5,6 +5,13 @@ from .model import AuthRequest, Creds, Label, Taint
 from ops import CharmBase, Relation, SecretNotFoundError, Unit
 from typing import Generator, List, Tuple
 
+from interface_kube_control.consts import (
+    CLIENT_TOKEN_SECERT_FIELD,
+    KUBELET_TOKEN_SECRET_FIELD,
+    PROXY_TOKEN_SECRET_FIELD,
+    SECRET_LABEL_FORMAT,
+)
+
 log = logging.getLogger("KubeControlProvides")
 
 
@@ -214,11 +221,12 @@ class KubeControlProvides:
         if 1 in request.schema_vers and request_relation:
             # Requesting unit can use schema 1, use juju secrets
             content = {
-                "client-token": client_token,
-                "kubelet-token": kubelet_token,
-                "proxy-token": proxy_token,
+                CLIENT_TOKEN_SECERT_FIELD: client_token,
+                KUBELET_TOKEN_SECRET_FIELD: kubelet_token,
+                PROXY_TOKEN_SECRET_FIELD: proxy_token,
             }
-            label = f"{request.user}-creds"
+
+            label = SECRET_LABEL_FORMAT.format(user=request.user)
             description = f"Credentials for {request.user}"
             secret = self.refresh_secret_content(label, content, description)
             if secret.id:
