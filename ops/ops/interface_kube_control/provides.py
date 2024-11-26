@@ -5,7 +5,7 @@ from .model import AuthRequest, Creds, Label, Taint
 from ops import CharmBase, Relation, SecretNotFoundError, Unit
 from typing import Generator, List, Tuple
 
-from interface_kube_control.consts import (
+from .consts import (
     CLIENT_TOKEN_SECERT_FIELD,
     KUBELET_TOKEN_SECRET_FIELD,
     PROXY_TOKEN_SECRET_FIELD,

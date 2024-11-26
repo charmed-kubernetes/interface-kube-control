@@ -1,15 +1,16 @@
-from pydantic import Field, AnyHttpUrl, BaseModel, Json, SecretStr
+from pydantic import Field, AnyHttpUrl, BaseModel, Json
 import json
 import ops
 from typing import List, Dict, Optional
 import re
 
-from interface_kube_control.consts import (
+from .consts import (
     SECRET_LABEL_FORMAT,
     CLIENT_TOKEN_SECERT_FIELD,
     KUBELET_TOKEN_SECRET_FIELD,
     PROXY_TOKEN_SECRET_FIELD,
 )
+
 
 class _ValidatedStr:
     def __init__(self, value, *groups) -> None:
@@ -100,7 +101,10 @@ class Creds(BaseModel):
     secret_id: Optional[str] = Field(alias="secret-id", default=None)
 
     def _get_secret_content(self, model: ops.Model, user: str) -> Dict[str, str]:
-        secret = model.get_secret(id=self.secret_id, label=SECRET_LABEL_FORMAT.format(user=user))
+        secret = model.get_secret(
+            id=self.secret_id,
+            label=SECRET_LABEL_FORMAT.format(user=user),
+        )
         return secret.get_content(refresh=True)
 
     def load_client_token(self, model: ops.Model, user: str) -> str:
@@ -146,17 +150,20 @@ class Data(BaseModel):
         except ops.SecretNotFoundError:
             return None
 
+
 class AuthCredentials(BaseModel):
     """
-    AuthCredentials is a Pydantic model that holds authentication credentials for accessing a Kubernetes cluster.
+    AuthCredentials is a Pydantic model that holds authentication credentials
+    for accessing a Kubernetes cluster.
 
     Attributes:
         user (str): The username for authentication.
-        kubelet_token (SecretStr): The token used for authenticating to the kubelet.
-        proxy_token (SecretStr): The token used for authenticating to the proxy.
-        client_token (SecretStr): The token used for authenticating to the client.
+        kubelet_token (str): The token used for authenticating to the kubelet.
+        proxy_token (str): The token used for authenticating to the proxy.
+        client_token (str): The token used for authenticating to the client.
     """
+
     user: str
-    kubelet_token: SecretStr
-    proxy_token: SecretStr
-    client_token: SecretStr
+    kubelet_token: str
+    proxy_token: str
+    client_token: str

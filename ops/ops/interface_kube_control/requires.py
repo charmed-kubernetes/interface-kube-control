@@ -15,7 +15,7 @@ from typing import Dict, Optional, Mapping, List
 import yaml
 from backports.cached_property import cached_property
 from .model import AuthCredentials, AuthRequest, Creds, Data, Taint, Label
-from pydantic import SecretStr, ValidationError
+from pydantic import ValidationError
 
 from ops.charm import CharmBase, RelationBrokenEvent
 from ops.framework import Object
@@ -147,13 +147,13 @@ class KubeControlRequirer(Object):
         if creds := users_to_creds.get(user):
             return AuthCredentials(
                 user=user,
-                kubelet_token=SecretStr(creds.load_kubelet_token(self.model, user)),
-                proxy_token=SecretStr(creds.load_proxy_token(self.model, user)),
-                client_token=SecretStr(creds.load_client_token(self.model, user)),
+                kubelet_token=creds.load_kubelet_token(self.model, user),
+                proxy_token=creds.load_proxy_token(self.model, user),
+                client_token=creds.load_client_token(self.model, user),
             )
         return None
 
-    def get_dns(self) -> Mapping[str, str|None]:
+    def get_dns(self) -> Mapping[str, Optional[str]]:
         """
         Return DNS info provided by the control-plane.
         """
