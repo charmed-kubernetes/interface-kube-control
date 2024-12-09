@@ -22,7 +22,7 @@ setup(
     keywords=["juju", "charming", "kubernetes", "ops", "framework", "interface"],
     name="ops.interface_kube_control",
     packages=find_namespace_packages(include=["ops.*"]),
-    url="https://github.com/charmed-kubernetes/interface-kube-control/blob/HEAD/ops",
+    url="https://github.com/juju-solutions/interface-kube-control/blob/HEAD/ops",
     version="0.2.0",
     zip_safe=True,
     install_requires=[
