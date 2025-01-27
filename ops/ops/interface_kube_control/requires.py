@@ -187,13 +187,15 @@ class KubeControlRequirer(Object):
                          cluster via changing to
                          system:masters.  # wokeignore:rule=master
         """
-        if self.relation:
-            req = AuthRequest(kubelet_user=user, auth_group=group)
-            req.schema_vers = self.schema_ver
-            log.info(
-                f"Auth Req for {user} with group {group} on schema {self.schema_ver}"
-            )
-            self.relation.data[self.model.unit].update(req.dict(exclude_none=True))
+        if not self.relation:
+            return
+
+        req = AuthRequest(kubelet_user=user, auth_group=group)
+        req.schema_vers = self.schema_ver
+        log.info(f"Auth Req for {user} with group {group} on schema {self.schema_ver}")
+        self.relation.data[self.model.unit].update(
+            req.model_dump(exclude_none=True, by_alias=True)
+        )
 
     def set_gpu(self, enabled=True):
         """
