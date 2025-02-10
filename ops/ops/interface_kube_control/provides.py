@@ -2,7 +2,7 @@ import json
 import logging
 from typing import Generator, List, Tuple
 
-from pydantic import TypeAdapter, ValidationError
+from pydantic import TypeAdapter
 
 from .model import AuthRequest, Creds, Label, Taint
 from ops import CharmBase, Relation, SecretNotFoundError, Unit
