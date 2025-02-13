@@ -38,16 +38,44 @@ classifiers = [
 [project.urls]
 Repository = "https://github.com/charmed-kubernetes/interface-kube-control"
 
+# Testing tools configuration
+[tool.coverage.run]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+
 [tool.isort]
 line_length = 99
 profile = "black"
 
+[tool.mypy]
+explicit_package_bases = true
+namespace_packages = true
+plugins = "pydantic.mypy"
+
 [tool.ruff]
 line-length = 99
-target-version = "py38"
+extend-exclude = ["__pycache__", "*.egg_info"]
 
 [tool.setuptools]
 zip-safe = true
 
 [tool.setuptools.packages.find]
 namespaces = true
+
+[dependency-groups]
+format = [
+    "ruff"
+]
+lint = [
+    "mypy",
+    "types-PyYAML",
+    {include-group = "format"},
+    {include-group = "unit"},
+]
+publish = []
+unit = [
+    "coverage[toml]>=7.6.1",
+    "pytest>=8.3.4",
+]
