@@ -1,9 +1,11 @@
+import ipaddress
 import json
 import logging
+from typing import Generator, List, Tuple
+
+from ops import CharmBase, Relation, SecretNotFoundError, Unit
 
 from .model import AuthRequest, Creds, Label, Taint
-from ops import CharmBase, Relation, SecretNotFoundError, Unit
-from typing import Generator, List, Tuple
 
 log = logging.getLogger("KubeControlProvides")
 
@@ -40,14 +42,14 @@ class KubeControlProvides:
     @property
     def ingress_addresses(self) -> List[str]:
         """Ingress addresses for this endpoint."""
+        binding = self.charm.model.get_binding(self.endpoint)
         return [
             # RFC 5280 section 4.2.1.6: "For IP version 6 ... the octet string
             # MUST contain exactly sixteen octets." We'll use .exploded to be
             # safe.
-            addr.exploded
-            for addr in self.charm.model.get_binding(
-                self.endpoint
-            ).network.ingress_addresses
+            ip.exploded
+            for addr in (binding and binding.network.ingress_addresses or [])
+            if (ip := ipaddress.ip_address(addr))
         ]
 
     @property
@@ -150,9 +152,7 @@ class KubeControlProvides:
                 secret.set_content(content)
             secret.set_info(description=description, label=label)
         except SecretNotFoundError:
-            secret = self.charm.app.add_secret(
-                content, label=label, description=description
-            )
+            secret = self.charm.app.add_secret(content, label=label, description=description)
         return secret
 
     def closed_auth_creds(self) -> Generator[Tuple[str, Creds], None, None]:
@@ -197,6 +197,8 @@ class KubeControlProvides:
     ) -> None:
         """Send authorization tokens to the requesting unit."""
         creds, request_relation = {}, None
+        if not request.unit:
+            raise ValueError("Request unit is required")
         request_unit = self.charm.model.get_unit(request.unit)
 
         for relation in self.relations:

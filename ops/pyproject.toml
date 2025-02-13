@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ops.interface_kube_control"
+version = "0.2.1"
+description = "Kube-Control Interface for Charmed Operators"
+readme = "README.md"
+requires-python = ">3.8"
+license = { text = "Apache" }
+authors = [
+    { name= "Adam Dyess", email = "adam.dyess@canonical.com" }
+]
+dependencies = [
+    "ops",
+    "pydantic<2"
+]
+keywords = [
+    "juju",
+    "charming",
+    "kubernetes",
+    "ops",
+    "framework",
+    "interface",
+]
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12"
+]
+
+[project.urls]
+Repository = "https://github.com/charmed-kubernetes/interface-kube-control"
+
+[tool.isort]
+line_length = 99
+profile = "black"
+
+[tool.ruff]
+line-length = 99
+target-version = "py38"
+
+[tool.setuptools]
+zip-safe = true
+
+[tool.setuptools.packages.find]
+namespaces = true
