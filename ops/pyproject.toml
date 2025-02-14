@@ -1,16 +1,22 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools >= 61.0", "setuptools_scm"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+version_scheme = "guess-next-dev"
+local_scheme = "node-and-date"
+root = ".."
 
 [project]
 name = "ops.interface_kube_control"
-version = "0.2.1"
+dynamic = ["version"]
 description = "Kube-Control Interface for Charmed Operators"
 readme = "README.md"
 requires-python = ">3.8"
 license = { text = "Apache" }
 authors = [
-    { name= "Adam Dyess", email = "adam.dyess@canonical.com" }
+    { name= "Adam Dyess", email = "adam.dyess@canonical.com" },
+    { name= "Mateo Florido", email = "mateo.florido@canonical.com" }
 ]
 dependencies = [
     "ops",
