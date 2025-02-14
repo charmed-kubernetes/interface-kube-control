@@ -2,12 +2,13 @@
 # See LICENSE file for licensing details.
 import contextlib
 import json
-from collections import defaultdict
 import unittest.mock as mock
+from collections import defaultdict
 from pathlib import Path
 
 import pytest
 import yaml
+
 from ops.charm import CharmBase
 from ops.interface_kube_control import KubeControlProvides
 
@@ -95,10 +96,7 @@ def test_set_taints(kube_control_provider, taints, expected):
     with mock_relations(2):
         kube_control_provider.set_taints(taints)
         for relation in kube_control_provider.relations:
-            assert (
-                json.loads(relation.data[kube_control_provider.unit]["taints"])
-                == expected
-            )
+            assert json.loads(relation.data[kube_control_provider.unit]["taints"]) == expected
 
 
 @pytest.mark.parametrize(
@@ -129,10 +127,7 @@ def test_set_labels(kube_control_provider, labels, expected):
     with mock_relations(2):
         kube_control_provider.set_labels(labels)
         for relation in kube_control_provider.relations:
-            assert (
-                json.loads(relation.data[kube_control_provider.unit]["labels"])
-                == expected
-            )
+            assert json.loads(relation.data[kube_control_provider.unit]["labels"]) == expected
 
 
 def test_is_ready_no_relation(kube_control_provider):
@@ -191,9 +186,7 @@ def test_close_auth_requests(kube_control_provider, relation_data):
 
 
 @mock.patch("ops.interface_kube_control.KubeControlProvides.refresh_secret_content")
-def test_sign_auth_requests(
-    refresh_secret_content, kube_control_provider, relation_data
-):
+def test_sign_auth_requests(refresh_secret_content, kube_control_provider, relation_data):
     with mock_relations(1) as relations:
         relation = relations.return_value[0]
         mock_units(kube_control_provider.charm.model, relation, relation_data)
@@ -201,9 +194,7 @@ def test_sign_auth_requests(
         mock_secret.id = "abcd::1234"
 
         for request in kube_control_provider.auth_requests:
-            kube_control_provider.sign_auth_request(
-                request, "client", "kubelet", "proxy"
-            )
+            kube_control_provider.sign_auth_request(request, "client", "kubelet", "proxy")
 
     crafted_creds = relation.data[kube_control_provider.unit]["creds"]
     creds = json.loads(crafted_creds)
