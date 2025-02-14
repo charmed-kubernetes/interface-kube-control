@@ -20,7 +20,7 @@ authors = [
 ]
 dependencies = [
     "ops",
-    "pydantic<2"
+    "pydantic>=2,<3",
 ]
 keywords = [
     "juju",
@@ -76,5 +76,5 @@ lint = [
 publish = []
 unit = [
     "pytest>=8.3.4",
-    "pytest-cov>=5.0.0"
+    "pytest-cov>=5.0.0",
 ]
