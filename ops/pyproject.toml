@@ -12,7 +12,7 @@ name = "ops.interface_kube_control"
 dynamic = ["version"]
 description = "Kube-Control Interface for Charmed Operators"
 readme = "README.md"
-requires-python = ">3.8"
+requires-python = ">=3.8"
 license = { text = "Apache" }
 authors = [
     { name= "Adam Dyess", email = "adam.dyess@canonical.com" },
