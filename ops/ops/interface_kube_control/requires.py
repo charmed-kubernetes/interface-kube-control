@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
 import yaml
-from pydantic import ValidationError, parse_obj_as
+from pydantic import ValidationError
 
 import ops
 
@@ -53,7 +53,7 @@ class KubeControlRequirer(ops.Object):
             rx: Dict[str, str] = {}
             for unit in self.relation.units:
                 rx.update(self.relation.data[unit])
-            return parse_obj_as(Data, rx)
+            return Data.model_validate(rx)
         raise RelationNotReady("No unit data available")
 
     def evaluate_relation(self, event) -> Optional[str]:
@@ -185,17 +185,21 @@ class KubeControlRequirer(ops.Object):
                          cluster via changing to
                          system:masters.  # wokeignore:rule=master
         """
-        if self.relation:
-            req = AuthRequest(kubelet_user=user, auth_group=group)
-            req.schema_vers = self.schema_ver
-            log.info(f"Auth Req for {user} with group {group} on schema {self.schema_ver}")
-            self.relation.data[self.model.unit].update(req.dict(exclude_none=True))
+        if not self.relation:
+            return
+
+        req = AuthRequest(kubelet_user=user, auth_group=group)
+        req.schema_vers = self.schema_ver
+        log.info(f"Auth Req for {user} with group {group} on schema {self.schema_ver}")
+        self.relation.data[self.model.unit].update(
+            req.model_dump(exclude_none=True, by_alias=True)
+        )
 
     def set_gpu(self, enabled=True):
         """
         Tell the control-plane that we're gpu-enabled (or not).
         """
-        log("Setting gpu={} on kube-control relation".format(enabled))
+        log.info("Setting gpu=%s on kube-control relation", enabled)
         for relation in self.model.relations:
             relation.data[self.model.unit].update(dict(gpu=enabled))
 

@@ -3,9 +3,10 @@ import json
 import logging
 from typing import Generator, List, Tuple
 
-from ops import CharmBase, Relation, SecretNotFoundError, Unit
+from pydantic import TypeAdapter
 
 from .model import AuthRequest, Creds, Label, Taint
+from ops import CharmBase, Relation, SecretNotFoundError, Unit
 
 log = logging.getLogger("KubeControlProvides")
 
@@ -16,6 +17,8 @@ class KubeControlProvides:
     def __init__(self, charm: CharmBase, endpoint: str = "kube-control", schemas="0,1"):
         self.charm = charm
         self.endpoint = endpoint
+        self.label_adapter = TypeAdapter(Label)
+        self.taint_adapter = TypeAdapter(Taint)
 
     @property
     def auth_requests(self) -> List[AuthRequest]:
@@ -33,8 +36,7 @@ class KubeControlProvides:
 
     def clear_creds(self) -> None:
         """Clear creds from the relation. This is used by non-leader units to
-        stop advertising creds so that the leader can assume full control of
-        them.
+        stop advertising creds so that the leader can assume full control of them.
         """
         for relation in self.relations:
             relation.data[self.unit]["creds"] = ""
@@ -67,7 +69,7 @@ class KubeControlProvides:
         """Send the CA certificate to the remote units.
 
         Args:
-            ca_certificate str: The CA certificate in PEM format.
+            ca_certificate (str): The CA certificate in PEM format.
         """
         content = {"ca-certificate": ca_certificate}
         secret = self.refresh_secret_content(
@@ -130,16 +132,16 @@ class KubeControlProvides:
 
     def set_labels(self, labels) -> None:
         """Send the Juju config labels of the control-plane."""
-        labels = [str(_) for _ in labels if Label.validate(_)]
-        dedup = sorted(set(labels))
+        valid_labels = [str(self.label_adapter.validate_python(label_str)) for label_str in labels]
+        dedup = sorted(set(valid_labels))
         value = json.dumps(dedup)
         for relation in self.relations:
             relation.data[self.unit]["labels"] = value
 
     def set_taints(self, taints) -> None:
         """Send the Juju config taints of the control-plane."""
-        taints = [str(_) for _ in taints if Taint.validate(_)]
-        dedup = sorted(set(taints))
+        valid_taints = [str(self.taint_adapter.validate_python(taint_str)) for taint_str in taints]
+        dedup = sorted(set(valid_taints))
         value = json.dumps(dedup)
         for relation in self.relations:
             relation.data[self.unit]["taints"] = value
@@ -171,12 +173,12 @@ class KubeControlProvides:
         """
         creds, unit_names = {}, []
 
-        # Collect creds from all relations
+        # Collect creds from all relations.
         for relation in self.relations:
             creds.update(json.loads(relation.data[self.unit].get("creds", "{}")))
             unit_names += [u.name for u in relation.units]
 
-        # Revoke creds for units that have been removed
+        # Revoke creds for units that have been removed.
         for user, cred in dict(**creds).items():
             data = Creds(**cred)
             if data.scope not in unit_names:
@@ -187,7 +189,7 @@ class KubeControlProvides:
                     secret = self.charm.model.get_secret(id=data.secret_id)
                     secret.remove_all_revisions()
 
-        # Publish the updated creds without the revoked units
+        # Publish the updated creds without the revoked units.
         value = json.dumps(creds)
         for relation in self.relations:
             relation.data[self.unit]["creds"] = value
@@ -214,7 +216,7 @@ class KubeControlProvides:
         )
 
         if 1 in request.schema_vers and request_relation:
-            # Requesting unit can use schema 1, use juju secrets
+            # Requesting unit can use schema 1, use Juju secrets.
             content = {
                 "client-token": client_token,
                 "kubelet-token": kubelet_token,
@@ -234,9 +236,9 @@ class KubeControlProvides:
                 tokens.kubelet_token = ""
                 tokens.proxy_token = ""
                 tokens.secret_id = secret.id
-                creds[request.user] = tokens.dict(by_alias=True, exclude_none=True)
+                creds[request.user] = tokens.model_dump(by_alias=True, exclude_none=True)
         else:
-            creds[request.user] = tokens.dict(by_alias=True, exclude_none=True)
+            creds[request.user] = tokens.model_dump(by_alias=True, exclude_none=True)
 
         value = json.dumps(creds)
         for relation in self.relations:
