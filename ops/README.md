@@ -19,4 +19,11 @@ tox
 ```
 
 * Raise your PR and contact maintainers
-* Once merged, tag with an `ops-vX.X.X` to publish a new pypi package
+* Once merged, tag with an `ops-X.X.X` to publish a new pypi package
+
+```sh
+git switch main
+git pull
+git tag -a ops-X.X.X
+git push <origin> tag ops-X.X.X
+```
