@@ -1,3 +1,4 @@
+import ipaddress
 import json
 import logging
 from typing import Generator, List, Tuple
@@ -43,13 +44,14 @@ class KubeControlProvides:
     @property
     def ingress_addresses(self) -> List[str]:
         """Ingress addresses for this endpoint."""
+        binding = self.charm.model.get_binding(self.endpoint)
         return [
             # RFC 5280 section 4.2.1.6: "For IP version 6 ... the octet string
-            # MUST contain exactly sixteen octets." We'll use .exploded to be safe.
-            addr.exploded
-            for addr in self.charm.model.get_binding(
-                self.endpoint
-            ).network.ingress_addresses
+            # MUST contain exactly sixteen octets." We'll use .exploded to be
+            # safe.
+            ip.exploded
+            for addr in (binding and binding.network.ingress_addresses or [])
+            if (ip := ipaddress.ip_address(addr))
         ]
 
     @property
@@ -130,9 +132,7 @@ class KubeControlProvides:
 
     def set_labels(self, labels) -> None:
         """Send the Juju config labels of the control-plane."""
-        valid_labels = [
-            str(self.label_adapter.validate_python(label_str)) for label_str in labels
-        ]
+        valid_labels = [str(self.label_adapter.validate_python(label_str)) for label_str in labels]
         dedup = sorted(set(valid_labels))
         value = json.dumps(dedup)
         for relation in self.relations:
@@ -140,9 +140,7 @@ class KubeControlProvides:
 
     def set_taints(self, taints) -> None:
         """Send the Juju config taints of the control-plane."""
-        valid_taints = [
-            str(self.taint_adapter.validate_python(taint_str)) for taint_str in taints
-        ]
+        valid_taints = [str(self.taint_adapter.validate_python(taint_str)) for taint_str in taints]
         dedup = sorted(set(valid_taints))
         value = json.dumps(dedup)
         for relation in self.relations:
@@ -156,9 +154,7 @@ class KubeControlProvides:
                 secret.set_content(content)
             secret.set_info(description=description, label=label)
         except SecretNotFoundError:
-            secret = self.charm.app.add_secret(
-                content, label=label, description=description
-            )
+            secret = self.charm.app.add_secret(content, label=label, description=description)
         return secret
 
     def closed_auth_creds(self) -> Generator[Tuple[str, Creds], None, None]:
@@ -203,6 +199,8 @@ class KubeControlProvides:
     ) -> None:
         """Send authorization tokens to the requesting unit."""
         creds, request_relation = {}, None
+        if not request.unit:
+            raise ValueError("Request unit is required")
         request_unit = self.charm.model.get_unit(request.unit)
 
         for relation in self.relations:
@@ -238,9 +236,7 @@ class KubeControlProvides:
                 tokens.kubelet_token = ""
                 tokens.proxy_token = ""
                 tokens.secret_id = secret.id
-                creds[request.user] = tokens.model_dump(
-                    by_alias=True, exclude_none=True
-                )
+                creds[request.user] = tokens.model_dump(by_alias=True, exclude_none=True)
         else:
             creds[request.user] = tokens.model_dump(by_alias=True, exclude_none=True)
 

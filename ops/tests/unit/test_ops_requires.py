@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 import yaml
-from ops.charm import RelationBrokenEvent, CharmBase
+
+from ops.charm import CharmBase, RelationBrokenEvent
 from ops.interface_kube_control import KubeControlRequirer
 
 
@@ -119,9 +120,9 @@ def test_create_kubeconfig_from_ca_cert_relation(
         config = yaml.safe_load(kube_config.read_text())
         assert config["kind"] == "Config"
         assert config["users"][0]["user"]["token"] == "admin::redacted"
-        assert config["clusters"][0]["cluster"][
-            "certificate-authority-data"
-        ].startswith("LS0tLS1C")
+        assert config["clusters"][0]["cluster"]["certificate-authority-data"].startswith(
+            "LS0tLS1C"
+        )
 
 
 @pytest.mark.parametrize("k8s_user", ["system:node:node-1", "system:node:node-2"])
@@ -149,25 +150,19 @@ def test_create_kubeconfig_from_ca_cert_file(
 
         # First run creates a new file
         assert not kube_config.exists()
-        kube_control_requirer.create_kubeconfig(
-            mock_ca_cert, kube_config, "ubuntu", k8s_user
-        )
+        kube_control_requirer.create_kubeconfig(mock_ca_cert, kube_config, "ubuntu", k8s_user)
         config = yaml.safe_load(kube_config.read_text())
         assert config["kind"] == "Config"
         assert config["users"][0]["user"]["token"] == "admin::redacted"
 
         # Second call alters existing file
         kube_config.write_text("")
-        kube_control_requirer.create_kubeconfig(
-            mock_ca_cert, kube_config, "ubuntu", k8s_user
-        )
+        kube_control_requirer.create_kubeconfig(mock_ca_cert, kube_config, "ubuntu", k8s_user)
         config = yaml.safe_load(kube_config.read_text())
         assert config["kind"] == "Config"
 
     if via_juju_secret:
-        mock_get_secret.assert_called_with(
-            id="abcd::1234", label="system:node:node-2-creds"
-        )
+        mock_get_secret.assert_called_with(id="abcd::1234", label="system:node:node-2-creds")
         mock_get_content.assert_called_with(refresh=True)
     else:
         mock_get_secret.assert_not_called()

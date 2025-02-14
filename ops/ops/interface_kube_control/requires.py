@@ -8,30 +8,33 @@ style rather than the reactive style.
 
 import base64
 import logging
+from functools import cached_property
 from os import PathLike
 from pathlib import Path
-from typing import Dict, Optional, Mapping, List
+from typing import Any, Dict, List, Mapping, Optional
 
 import yaml
-from backports.cached_property import cached_property
-from .model import AuthRequest, Creds, Data, Taint, Label
-from pydantic import ValidationError
+from pydantic import ValidationError, parse_obj_as
 
-from ops.charm import CharmBase, RelationBrokenEvent
-from ops.framework import Object
-from ops.model import Relation
+import ops
+
+from .model import AuthRequest, Creds, Data, Label, Taint
 
 log = logging.getLogger("KubeControlRequirer")
 JUJU_CLUSTER = "juju-cluster"
 JUJU_CONTEXT = "juju-context"
 
 
-class KubeControlRequirer(Object):
+class RelationNotReady(Exception):
+    """Exception raised when the relation is not ready."""
+
+
+class KubeControlRequirer(ops.Object):
     """
     Implements the requirer side of the kube-control interface.
     """
 
-    def __init__(self, charm: CharmBase, endpoint: str = "kube-control", schemas="0"):
+    def __init__(self, charm: ops.CharmBase, endpoint: str = "kube-control", schemas="0"):
         super().__init__(charm, f"relation-{endpoint}")
         self.endpoint = endpoint
         # comma-separated set of schemas to advertise support
@@ -40,23 +43,23 @@ class KubeControlRequirer(Object):
         self.schema_ver = [int(v) for v in schemas.split(",")]
 
     @cached_property
-    def relation(self) -> Optional[Relation]:
+    def relation(self) -> Optional[ops.Relation]:
         """The lone relation endpoint or None."""
         return self.model.get_relation(self.endpoint)
 
     @cached_property
-    def _data(self) -> Optional[Data]:
+    def _data(self) -> Data:
         if self.relation and self.relation.units:
-            rx = {}
+            rx: Dict[str, str] = {}
             for unit in self.relation.units:
                 rx.update(self.relation.data[unit])
-            return Data(**rx)
-        return None
+            return parse_obj_as(Data, rx)
+        raise RelationNotReady("No unit data available")
 
     def evaluate_relation(self, event) -> Optional[str]:
         """Determine if relation is ready."""
         no_relation = not self.relation or (
-            isinstance(event, RelationBrokenEvent) and event.relation is self.relation
+            isinstance(event, ops.RelationBrokenEvent) and event.relation is self.relation
         )
         if not self.is_ready:
             if no_relation:
@@ -72,14 +75,12 @@ class KubeControlRequirer(Object):
         except ValidationError as ve:
             log.error(f"{self.endpoint} relation data not yet valid. ({ve}")
             return False
-        if self._data is None:
+        except RelationNotReady:
             log.error(f"{self.endpoint} relation data not yet available.")
             return False
         return True
 
-    def create_kubeconfig(
-        self, ca: PathLike, kubeconfig: PathLike, user: str, k8s_user: str
-    ):
+    def create_kubeconfig(self, ca: PathLike, kubeconfig: PathLike, user: str, k8s_user: str):
         """Write kubeconfig based on available creds."""
         creds = self.get_auth_credentials(k8s_user)
         endpoints = self.get_api_endpoints()
@@ -153,7 +154,7 @@ class KubeControlRequirer(Object):
             }
         return None
 
-    def get_dns(self) -> Mapping[str, str]:
+    def get_dns(self) -> Mapping[str, Any]:
         """
         Return DNS info provided by the control-plane.
         """
@@ -170,10 +171,7 @@ class KubeControlRequirer(Object):
         """
         keys = ["port", "domain", "sdn-ip", "enable-kube-dns"]
         dns_info = self.get_dns()
-        return (
-            set(dns_info.keys()) == set(keys)
-            and dns_info["enable-kube-dns"] is not None
-        )
+        return set(dns_info.keys()) == set(keys) and dns_info["enable-kube-dns"] is not None
 
     def set_auth_request(self, user, group="system:nodes") -> None:
         """Notify control-plane that we are requesting auth.
@@ -201,7 +199,7 @@ class KubeControlRequirer(Object):
         """
         Tell the control-plane that we're gpu-enabled (or not).
         """
-        log("Setting gpu={} on kube-control relation".format(enabled))
+        log.info("Setting gpu=%s on kube-control relation", enabled)
         for relation in self.model.relations:
             relation.data[self.model.unit].update(dict(gpu=enabled))
 
