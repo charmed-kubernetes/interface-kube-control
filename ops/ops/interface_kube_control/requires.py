@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
 import yaml
-from pydantic import ValidationError, parse_obj_as
+from pydantic import ValidationError
 
 import ops
 
@@ -53,7 +53,7 @@ class KubeControlRequirer(ops.Object):
             rx: Dict[str, str] = {}
             for unit in self.relation.units:
                 rx.update(self.relation.data[unit])
-            return parse_obj_as(Data, rx)
+            return Data.model_validate(rx)
         raise RelationNotReady("No unit data available")
 
     def evaluate_relation(self, event) -> Optional[str]:
