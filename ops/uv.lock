@@ -344,8 +344,6 @@ format = [
     { name = "ruff" },
 ]
 lint = [
-    { name = "coverage", version = "7.6.1", source = { registry = "https://pypi.org/simple" }, extra = ["toml"], marker = "python_full_version < '3.9'" },
-    { name = "coverage", version = "7.6.12", source = { registry = "https://pypi.org/simple" }, extra = ["toml"], marker = "python_full_version >= '3.9'" },
     { name = "mypy", version = "1.14.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "mypy", version = "1.15.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
     { name = "pytest" },
@@ -355,8 +353,6 @@ lint = [
     { name = "types-pyyaml" },
 ]
 unit = [
-    { name = "coverage", version = "7.6.1", source = { registry = "https://pypi.org/simple" }, extra = ["toml"], marker = "python_full_version < '3.9'" },
-    { name = "coverage", version = "7.6.12", source = { registry = "https://pypi.org/simple" }, extra = ["toml"], marker = "python_full_version >= '3.9'" },
     { name = "pytest" },
     { name = "pytest-cov", version = "5.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "pytest-cov", version = "6.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
@@ -371,7 +367,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 format = [{ name = "ruff" }]
 lint = [
-    { name = "coverage", extras = ["toml"], specifier = ">=7.6.1" },
     { name = "mypy" },
     { name = "pytest", specifier = ">=8.3.4" },
     { name = "pytest-cov", specifier = ">=5.0.0" },
@@ -380,7 +375,6 @@ lint = [
 ]
 publish = []
 unit = [
-    { name = "coverage", extras = ["toml"], specifier = ">=7.6.1" },
     { name = "pytest", specifier = ">=8.3.4" },
     { name = "pytest-cov", specifier = ">=5.0.0" },
 ]

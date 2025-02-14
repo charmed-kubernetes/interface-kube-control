@@ -44,13 +44,6 @@ classifiers = [
 [project.urls]
 Repository = "https://github.com/charmed-kubernetes/interface-kube-control"
 
-# Testing tools configuration
-[tool.coverage.run]
-branch = true
-
-[tool.coverage.report]
-show_missing = true
-
 [tool.isort]
 line_length = 99
 profile = "black"
@@ -82,7 +75,6 @@ lint = [
 ]
 publish = []
 unit = [
-    "coverage[toml]>=7.6.1",
     "pytest>=8.3.4",
     "pytest-cov>=5.0.0",
 ]
