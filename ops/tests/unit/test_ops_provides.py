@@ -6,6 +6,7 @@ import unittest.mock as mock
 from collections import defaultdict
 from pathlib import Path
 
+import ops
 import pytest
 import yaml
 
@@ -152,6 +153,32 @@ def test_set_ca_certificate(refresh_secret_content, kube_control_provider):
         assert label == "ca-certificate"
         assert content == {"ca-certificate": data}
         assert description == "Kubernetes API endpoint CA certificate"
+
+
+def test_refresh_secret_content_existing(kube_control_provider):
+    content = {"key": "new"}
+    cur_secret = mock.MagicMock(autospec=ops.Secret)
+    kube_control_provider.charm.model.get_secret.return_value = cur_secret
+    cur_secret.get_info.return_value.revision = 1
+    cur_secret.get_content.return_value = {"key": "current"}
+    sec = kube_control_provider.refresh_secret_content("label", content, "description")
+    assert sec is cur_secret
+    sec.get_content.assert_called_once_with(refresh=True)
+    sec.remove_revision.assert_called_once_with(1)
+    sec.set_content.assert_called_once_with(content)
+    sec.set_info.assert_called_once_with(label="label", description="description")
+
+
+def test_refresh_secret_content_new(kube_control_provider):
+    content = {"key": "new"}
+    kube_control_provider.charm.model.get_secret.side_effect = ops.SecretNotFoundError
+    new_secret = mock.MagicMock(autospec=ops.Secret)
+    kube_control_provider.charm.app.add_secret.return_value = new_secret
+    sec = kube_control_provider.refresh_secret_content("label", content, "description")
+    assert sec is new_secret
+    kube_control_provider.charm.app.add_secret.assert_called_once_with(
+        content, label="label", description="description"
+    )
 
 
 def test_close_auth_requests(kube_control_provider, relation_data):
