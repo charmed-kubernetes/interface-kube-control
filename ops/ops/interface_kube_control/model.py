@@ -115,9 +115,7 @@ class Creds(BaseModel):
         return self.proxy_token
 
 
-class Data(
-    BaseModel,
-):
+class Data(BaseModel):
     api_endpoints: Json[List[AnyHttpUrl]] = Field(alias="api-endpoints")
     ca_certificate_secret_id: Optional[str] = Field(alias="ca-certificate-secret-id")
     cluster_tag: str = Field(alias="cluster-tag")
