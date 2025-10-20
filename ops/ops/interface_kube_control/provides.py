@@ -3,22 +3,24 @@ import json
 import logging
 from typing import Generator, List, Tuple
 
+import ops
 from pydantic import TypeAdapter
 
 from .model import AuthRequest, Creds, Label, Taint
-from ops import CharmBase, Relation, SecretNotFoundError, Unit
 
 log = logging.getLogger("KubeControlProvides")
 
 
-class KubeControlProvides:
+class KubeControlProvides(ops.Object):
     """Implements the Provides side of the kube-control interface."""
 
-    def __init__(self, charm: CharmBase, endpoint: str = "kube-control", schemas="0,1"):
+    def __init__(self, charm: ops.CharmBase, endpoint: str = "kube-control", schemas="0,1"):
+        super().__init__(charm, f"{endpoint}-provider")
         self.charm = charm
         self.endpoint = endpoint
         self.label_adapter = TypeAdapter(Label)
         self.taint_adapter = TypeAdapter(Taint)
+        self.framework.observe(charm.on.secret_remove, self._on_secret_remove)
 
     @property
     def auth_requests(self) -> List[AuthRequest]:
@@ -55,7 +57,7 @@ class KubeControlProvides:
         ]
 
     @property
-    def relations(self) -> List[Relation]:
+    def relations(self) -> List[ops.Relation]:
         """List of relations on this endpoint."""
         return self.charm.model.relations[self.endpoint]
 
@@ -72,7 +74,7 @@ class KubeControlProvides:
             ca_certificate (str): The CA certificate in PEM format.
         """
         content = {"ca-certificate": ca_certificate}
-        secret = self.refresh_secret_content(
+        secret = self._refresh_secret_content(
             "ca-certificate", content, "Kubernetes API endpoint CA certificate"
         )
         for relation in self.relations:
@@ -146,16 +148,29 @@ class KubeControlProvides:
         for relation in self.relations:
             relation.data[self.unit]["taints"] = value
 
-    def refresh_secret_content(self, label, content, description=None):
+    def _on_secret_remove(self, event: ops.SecretRemoveEvent) -> None:
+        """Remove revisions for secrets matching this object's endpoint.
+        Args:
+            event (ops.SecretRemoveEvent): The secret removal event.
+        """
+        try:
+            content = event.secret.get_content()
+        except ops.SecretNotFoundError:
+            return
+        if content.get("endpoint") == self.endpoint:
+            log.info(f"Removing secret {event.secret.id}")
+            event.secret.remove_revision(event.revision)
+
+    def _refresh_secret_content(self, label, content, description=None):
         """Refresh the content of a secret."""
+        content = {**content, "endpoint": self.endpoint}
         try:
             secret = self.charm.model.get_secret(label=label)
-            if secret.get_content(refresh=True) != content:
-                secret.remove_revision(secret.get_info().revision)
-                secret.set_content(content)
-            secret.set_info(description=description, label=label)
-        except SecretNotFoundError:
+        except ops.SecretNotFoundError:
             secret = self.charm.app.add_secret(content, label=label, description=description)
+        if secret.get_content(refresh=True) != content:
+            log.info("Refresh content %s", secret.id)
+            secret.set_content(content)
         return secret
 
     def closed_auth_creds(self) -> Generator[Tuple[str, Creds], None, None]:
@@ -225,7 +240,7 @@ class KubeControlProvides:
             }
             label = f"{request.user}-creds"
             description = f"Credentials for {request.user}"
-            secret = self.refresh_secret_content(label, content, description)
+            secret = self._refresh_secret_content(label, content, description)
             if secret.id:
                 log.info(f"Granting secret {secret.id} to {request_relation.name}")
                 secret.grant(request_relation, unit=request_unit)
@@ -246,6 +261,6 @@ class KubeControlProvides:
             relation.data[self.unit]["creds"] = value
 
     @property
-    def unit(self) -> Unit:
+    def unit(self) -> ops.Unit:
         """Local unit."""
         return self.charm.unit
