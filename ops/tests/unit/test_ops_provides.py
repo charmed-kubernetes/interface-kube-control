@@ -6,6 +6,7 @@ import unittest.mock as mock
 from collections import defaultdict
 from pathlib import Path
 
+import ops
 import pytest
 import yaml
 
@@ -135,7 +136,7 @@ def test_is_ready_no_relation(kube_control_provider):
         assert kube_control_provider.auth_requests == []
 
 
-@mock.patch("ops.interface_kube_control.KubeControlProvides.refresh_secret_content")
+@mock.patch("ops.interface_kube_control.KubeControlProvides._refresh_secret_content")
 def test_set_ca_certificate(refresh_secret_content, kube_control_provider):
     with mock_relations(2):
         mock_secret = refresh_secret_content.return_value
@@ -152,6 +153,32 @@ def test_set_ca_certificate(refresh_secret_content, kube_control_provider):
         assert label == "ca-certificate"
         assert content == {"ca-certificate": data}
         assert description == "Kubernetes API endpoint CA certificate"
+
+
+def test_refresh_secret_content_existing(kube_control_provider):
+    content = {"key": "new"}
+    expected_content = {**content, "endpoint": kube_control_provider.endpoint}
+    cur_secret = mock.MagicMock(autospec=ops.Secret)
+    kube_control_provider.charm.model.get_secret.return_value = cur_secret
+    cur_secret.get_info.return_value.revision = 1
+    cur_secret.get_content.return_value = {"key": "current"}
+    sec = kube_control_provider._refresh_secret_content("label", content, "description")
+    assert sec is cur_secret
+    sec.get_content.assert_called_once_with(refresh=True)
+    sec.set_content.assert_called_once_with(expected_content)
+
+
+def test_refresh_secret_content_new(kube_control_provider):
+    content = {"key": "new"}
+    expected_content = {**content, "endpoint": kube_control_provider.endpoint}
+    kube_control_provider.charm.model.get_secret.side_effect = ops.SecretNotFoundError
+    new_secret = mock.MagicMock(autospec=ops.Secret)
+    kube_control_provider.charm.app.add_secret.return_value = new_secret
+    sec = kube_control_provider._refresh_secret_content("label", content, "description")
+    assert sec is new_secret
+    kube_control_provider.charm.app.add_secret.assert_called_once_with(
+        expected_content, label="label", description="description"
+    )
 
 
 def test_close_auth_requests(kube_control_provider, relation_data):
@@ -185,7 +212,7 @@ def test_close_auth_requests(kube_control_provider, relation_data):
         assert relation.data[kube_control_provider.unit]["creds"] == "{}"
 
 
-@mock.patch("ops.interface_kube_control.KubeControlProvides.refresh_secret_content")
+@mock.patch("ops.interface_kube_control.KubeControlProvides._refresh_secret_content")
 def test_sign_auth_requests(refresh_secret_content, kube_control_provider, relation_data):
     with mock_relations(1) as relations:
         relation = relations.return_value[0]
