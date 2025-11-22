@@ -36,11 +36,26 @@ class KubeControlRequirer(ops.Object):
 
     def __init__(self, charm: ops.CharmBase, endpoint: str = "kube-control", schemas="0"):
         super().__init__(charm, f"relation-{endpoint}")
+        self.charm = charm
         self.endpoint = endpoint
         # comma-separated set of schemas to advertise support
         # schema 0 -- same as unschema'd
         # schema 1 -- signals support for credentials in juju secrets
         self.schema_ver = [int(v) for v in schemas.split(",")]
+        self.framework.observe(charm.on.secret_changed, self._on_secret_change)
+
+    def _on_secret_change(self, event):
+        """Handle secret change events by re-emitting as relation changed."""
+        try:
+            content = event.secret.get_content(refresh=True)
+        except ops.SecretNotFoundError:
+            return
+        relation = self.model.get_relation(self.endpoint)
+        if relation and content.get("endpoint") == self.endpoint:
+            log.info(
+                f"Secret change event {event.secret.id} emits [{self.endpoint}].relation_changed"
+            )
+            self.charm.on[self.endpoint].relation_changed.emit(relation, relation.app)
 
     @cached_property
     def relation(self) -> Optional[ops.Relation]:
