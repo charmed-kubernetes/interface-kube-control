@@ -190,3 +190,31 @@ def test_taints_and_labels(kube_control_requirer, relation_data):
         assert labels[0].groups == ("node-role.kubernetes.io/control-plane", "")
         assert labels[0].key == "node-role.kubernetes.io/control-plane"
         assert labels[0].value == "", "Labels must have a value, it can be an empty str"
+
+
+def test_secret_change_triggers_relation_changed(kube_control_requirer):
+    event = mock.MagicMock()
+    endpoint = kube_control_requirer.endpoint
+    get_relation = kube_control_requirer.model.get_relation
+    relation = get_relation.return_value
+    event.secret.get_content.return_value = {"endpoint": endpoint}
+
+    kube_control_requirer._on_secret_change(event)
+
+    get_relation.assert_called_with(endpoint)
+    event.secret.get_content.assert_called_with(refresh=True)
+    emit = kube_control_requirer.charm.on[endpoint].relation_changed.emit
+    emit.assert_called_with(relation, relation.app)
+
+
+def test_secret_change_ignored(kube_control_requirer):
+    event = mock.MagicMock()
+    endpoint = kube_control_requirer.endpoint
+    get_relation = kube_control_requirer.model.get_relation
+    event.secret.get_content.return_value = {"endpoint": "ignore-me"}
+
+    kube_control_requirer._on_secret_change(event)
+
+    get_relation.assert_called_with(endpoint)
+    event.secret.get_content.assert_called_with(refresh=True)
+    kube_control_requirer.charm.on[endpoint].relation_changed.emit.assert_not_called()
