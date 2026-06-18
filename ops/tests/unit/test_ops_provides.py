@@ -155,6 +155,32 @@ def test_set_ca_certificate(refresh_secret_content, kube_control_provider):
         assert description == "Kubernetes API endpoint CA certificate"
 
 
+@mock.patch("ops.interface_kube_control.KubeControlProvides._refresh_secret_content")
+def test_set_ca_certificate_with_existing_labeled_secret(
+    refresh_secret_content, kube_control_provider
+):
+    with mock_relations(2):
+        mock_secret = refresh_secret_content.return_value
+        mock_secret.id = None
+        mock_secret.get_info.return_value.id = "abcd::1234"
+
+        fetched_secret = mock.MagicMock(autospec=ops.Secret)
+        kube_control_provider.charm.model.get_secret.return_value = fetched_secret
+
+        data = Path("tests/data/test-ca-cert.pem").read_text()
+        kube_control_provider.set_ca_certificate(data)
+
+        kube_control_provider.charm.model.get_secret.assert_called_once_with(
+            id="abcd::1234", label="ca-certificate"
+        )
+        assert fetched_secret.grant.call_count == 2
+        for relation in kube_control_provider.relations:
+            assert (
+                relation.data[kube_control_provider.unit]["ca-certificate-secret-id"]
+                == "abcd::1234"
+            )
+
+
 def test_refresh_secret_content_existing(kube_control_provider):
     content = {"key": "new"}
     expected_content = {**content, "endpoint": kube_control_provider.endpoint}
@@ -240,3 +266,29 @@ def test_sign_auth_requests(refresh_secret_content, kube_control_provider, relat
             "proxy_token": "",
         },
     }
+
+
+@mock.patch("ops.interface_kube_control.KubeControlProvides._refresh_secret_content")
+def test_sign_auth_requests_with_existing_labeled_secret(
+    refresh_secret_content, kube_control_provider, relation_data
+):
+    with mock_relations(1) as relations:
+        relation = relations.return_value[0]
+        mock_units(kube_control_provider.charm.model, relation, relation_data)
+        mock_secret = refresh_secret_content.return_value
+        mock_secret.id = None
+        mock_secret.get_info.return_value.id = "abcd::1234"
+
+        fetched_secret = mock.MagicMock(autospec=ops.Secret)
+        kube_control_provider.charm.model.get_secret.return_value = fetched_secret
+
+        for request in kube_control_provider.auth_requests:
+            kube_control_provider.sign_auth_request(request, "client", "kubelet", "proxy")
+
+    kube_control_provider.charm.model.get_secret.assert_called_once_with(
+        id="abcd::1234", label="system:node:node-2-creds"
+    )
+    fetched_secret.grant.assert_called_once()
+
+    creds = json.loads(relation.data[kube_control_provider.unit]["creds"])
+    assert creds["system:node:node-2"]["secret-id"] == "abcd::1234"

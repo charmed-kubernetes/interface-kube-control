@@ -1,7 +1,7 @@
 import ipaddress
 import json
 import logging
-from typing import Generator, List, Tuple
+from typing import Generator, List, Optional, Tuple
 
 import ops
 from pydantic import TypeAdapter
@@ -61,6 +61,16 @@ class KubeControlProvides(ops.Object):
         """List of relations on this endpoint."""
         return self.charm.model.relations[self.endpoint]
 
+    @staticmethod
+    def _secret_locator_id(secret: ops.Secret) -> Optional[str]:
+        """Resolve a secret locator ID even when fetched by label only."""
+        if secret.id:
+            return secret.id
+        try:
+            return secret.get_info().id
+        except ops.SecretNotFoundError:
+            return None
+
     def set_api_endpoints(self, endpoints) -> None:
         """Send the list of API endpoint URLs to which workers should connect."""
         endpoints = json.dumps(endpoints)
@@ -77,10 +87,14 @@ class KubeControlProvides(ops.Object):
         secret = self._refresh_secret_content(
             "ca-certificate", content, "Kubernetes API endpoint CA certificate"
         )
+        secret_id = self._secret_locator_id(secret)
+        if secret_id and not secret.id:
+            secret = self.charm.model.get_secret(id=secret_id, label="ca-certificate")
+
         for relation in self.relations:
-            if secret.id:
+            if secret_id:
                 secret.grant(relation)
-                relation.data[self.unit]["ca-certificate-secret-id"] = secret.id
+                relation.data[self.unit]["ca-certificate-secret-id"] = secret_id
 
     def set_cluster_name(self, cluster_name) -> None:
         """Send the cluster name to the remote units."""
@@ -241,8 +255,11 @@ class KubeControlProvides(ops.Object):
             label = f"{request.user}-creds"
             description = f"Credentials for {request.user}"
             secret = self._refresh_secret_content(label, content, description)
-            if secret.id:
-                log.info(f"Granting secret {secret.id} to {request_relation.name}")
+            secret_id = self._secret_locator_id(secret)
+            if secret_id and not secret.id:
+                secret = self.charm.model.get_secret(id=secret_id, label=label)
+            if secret_id:
+                log.info(f"Granting secret {secret_id} to {request_relation.name}")
                 secret.grant(request_relation, unit=request_unit)
                 # Intentionally set the tokens to empty strings in order to
                 # be valid credentials for units still receiving these on schema 0
@@ -251,7 +268,7 @@ class KubeControlProvides(ops.Object):
                 tokens.client_token = ""
                 tokens.kubelet_token = ""
                 tokens.proxy_token = ""
-                tokens.secret_id = secret.id
+                tokens.secret_id = secret_id
                 creds[request.user] = tokens.model_dump(by_alias=True, exclude_none=True)
         else:
             creds[request.user] = tokens.model_dump(by_alias=True, exclude_none=True)
