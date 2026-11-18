@@ -155,6 +155,58 @@ def test_set_ca_certificate(refresh_secret_content, kube_control_provider):
         assert description == "Kubernetes API endpoint CA certificate"
 
 
+@mock.patch("ops.interface_kube_control.KubeControlProvides._refresh_secret_content")
+def test_set_ca_certificate_existing_secret_without_id(
+    refresh_secret_content, kube_control_provider
+):
+    """A secret fetched by label has no id; it must still be granted and published."""
+    with mock_relations(2):
+        found = refresh_secret_content.return_value
+        found.id = None
+        found.get_info.return_value.id = "abcd::1234"
+        resolved = kube_control_provider.charm.model.get_secret.return_value
+        kube_control_provider.set_ca_certificate("cert")
+        kube_control_provider.charm.model.get_secret.assert_called_once_with(
+            id="abcd::1234", label="ca-certificate"
+        )
+        assert resolved.grant.call_count == 2
+        for relation in kube_control_provider.relations:
+            resolved.grant.assert_any_call(relation)
+            assert (
+                relation.data[kube_control_provider.unit]["ca-certificate-secret-id"]
+                == "abcd::1234"
+            )
+
+
+@mock.patch("ops.interface_kube_control.KubeControlProvides._refresh_secret_content")
+def test_set_ca_certificate_unresolvable_secret_id(refresh_secret_content, kube_control_provider):
+    with mock_relations(1):
+        found = refresh_secret_content.return_value
+        found.id = None
+        found.get_info.side_effect = ops.SecretNotFoundError
+        kube_control_provider.set_ca_certificate("cert")
+        found.grant.assert_not_called()
+        for relation in kube_control_provider.relations:
+            assert "ca-certificate-secret-id" not in relation.data[kube_control_provider.unit]
+
+
+@pytest.mark.parametrize("error", [ops.ModelError, ops.SecretNotFoundError])
+@mock.patch("ops.interface_kube_control.KubeControlProvides._refresh_secret_content")
+def test_set_ca_certificate_grant_fails_on_departing_relation(
+    refresh_secret_content, error, kube_control_provider, caplog
+):
+    """A relation being torn down rejects the grant; other relations must still be served."""
+    with mock_relations(2):
+        secret = refresh_secret_content.return_value
+        secret.id = "abcd::1234"
+        secret.grant.side_effect = [error("relation is dying"), None]
+        kube_control_provider.set_ca_certificate("cert")
+        departing, healthy = kube_control_provider.relations
+        assert [c.args[0] for c in secret.grant.call_args_list] == [departing, healthy]
+        assert "Unable to publish CA secret" in caplog.text
+        assert "relation is dying" in caplog.text
+
+
 def test_refresh_secret_content_existing(kube_control_provider):
     content = {"key": "new"}
     expected_content = {**content, "endpoint": kube_control_provider.endpoint}
@@ -240,3 +292,68 @@ def test_sign_auth_requests(refresh_secret_content, kube_control_provider, relat
             "proxy_token": "",
         },
     }
+
+
+def _sign_all(provider):
+    for request in provider.auth_requests:
+        provider.sign_auth_request(request, "client", "kubelet", "proxy")
+
+
+@mock.patch("ops.interface_kube_control.KubeControlProvides._refresh_secret_content")
+def test_sign_auth_requests_unresolvable_secret_id(
+    refresh_secret_content, kube_control_provider, relation_data, caplog
+):
+    """A schema 1 requester gets nothing, not plaintext tokens, when the secret id is unknown."""
+    with mock_relations(1) as relations:
+        relation = relations.return_value[0]
+        mock_units(kube_control_provider.charm.model, relation, relation_data)
+        found = refresh_secret_content.return_value
+        found.id = None
+        found.get_info.side_effect = ops.SecretNotFoundError
+
+        _sign_all(kube_control_provider)
+
+    creds = json.loads(relation.data[kube_control_provider.unit]["creds"])
+    assert list(creds) == ["system:node:node-1"]
+    assert creds["system:node:node-1"]["client_token"] == "client"
+    found.grant.assert_not_called()
+    assert "not sending credentials to requirer/1" in caplog.text
+
+
+@mock.patch("ops.interface_kube_control.KubeControlProvides._refresh_secret_content")
+def test_sign_auth_requests_grant_fails(
+    refresh_secret_content, kube_control_provider, relation_data, caplog
+):
+    """A dying requester rejects the grant; its creds are withheld but others are published."""
+    with mock_relations(1) as relations:
+        relation = relations.return_value[0]
+        mock_units(kube_control_provider.charm.model, relation, relation_data)
+        secret = refresh_secret_content.return_value
+        secret.id = "abcd::1234"
+        secret.grant.side_effect = ops.ModelError("unit is dying")
+
+        _sign_all(kube_control_provider)
+
+    creds = json.loads(relation.data[kube_control_provider.unit]["creds"])
+    assert list(creds) == ["system:node:node-1"]
+    assert "Unable to grant secret abcd::1234 to requirer/1: unit is dying" in caplog.text
+
+
+@mock.patch("ops.interface_kube_control.KubeControlProvides._refresh_secret_content")
+def test_sign_auth_requests_existing_secret_without_id(
+    refresh_secret_content, kube_control_provider, relation_data
+):
+    """A creds secret fetched by label has no id; it must still be granted and published."""
+    with mock_relations(1) as relations:
+        relation = relations.return_value[0]
+        mock_units(kube_control_provider.charm.model, relation, relation_data)
+        found = refresh_secret_content.return_value
+        found.id = None
+        found.get_info.return_value.id = "abcd::1234"
+        resolved = kube_control_provider.charm.model.get_secret.return_value
+
+        _sign_all(kube_control_provider)
+
+    creds = json.loads(relation.data[kube_control_provider.unit]["creds"])
+    assert creds["system:node:node-2"]["secret-id"] == "abcd::1234"
+    resolved.grant.assert_called_once()

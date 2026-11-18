@@ -61,6 +61,16 @@ class KubeControlProvides(ops.Object):
         """List of relations on this endpoint."""
         return self.charm.model.relations[self.endpoint]
 
+    @staticmethod
+    def _secret_locator_id(secret: ops.Secret) -> "str | None":
+        """Resolve a secret locator ID even when fetched by label only."""
+        if secret.id:
+            return secret.id
+        try:
+            return secret.get_info().id
+        except ops.SecretNotFoundError:
+            return None
+
     def set_api_endpoints(self, endpoints) -> None:
         """Send the list of API endpoint URLs to which workers should connect."""
         endpoints = json.dumps(endpoints)
@@ -77,10 +87,19 @@ class KubeControlProvides(ops.Object):
         secret = self._refresh_secret_content(
             "ca-certificate", content, "Kubernetes API endpoint CA certificate"
         )
+        secret_id = self._secret_locator_id(secret)
+        if not secret_id:
+            log.warning("Unable to resolve id of the CA certificate secret; not publishing it")
+            return
+        if not secret.id:
+            secret = self.charm.model.get_secret(id=secret_id, label="ca-certificate")
+
         for relation in self.relations:
-            if secret.id:
+            try:
                 secret.grant(relation)
-                relation.data[self.unit]["ca-certificate-secret-id"] = secret.id
+                relation.data[self.unit]["ca-certificate-secret-id"] = secret_id
+            except ops.ModelError as exc:
+                log.warning("Unable to publish CA secret to relation %s: %s", relation.id, exc)
 
     def set_cluster_name(self, cluster_name) -> None:
         """Send the cluster name to the remote units."""
@@ -241,18 +260,35 @@ class KubeControlProvides(ops.Object):
             label = f"{request.user}-creds"
             description = f"Credentials for {request.user}"
             secret = self._refresh_secret_content(label, content, description)
-            if secret.id:
-                log.info(f"Granting secret {secret.id} to {request_relation.name}")
-                secret.grant(request_relation, unit=request_unit)
-                # Intentionally set the tokens to empty strings in order to
-                # be valid credentials for units still receiving these on schema 0
-                # if None, these would be considered missing and the schema 0
-                # parser would assume the relation wasn't ready.
-                tokens.client_token = ""
-                tokens.kubelet_token = ""
-                tokens.proxy_token = ""
-                tokens.secret_id = secret.id
-                creds[request.user] = tokens.model_dump(by_alias=True, exclude_none=True)
+            secret_id = self._secret_locator_id(secret)
+            if secret_id and not secret.id:
+                secret = self.charm.model.get_secret(id=secret_id, label=label)
+            if not secret_id:
+                # No schema-0 fallback: that would publish plaintext tokens
+                # to a unit that asked for secrets.
+                log.warning(
+                    "Unable to resolve id of secret %s; not sending credentials to %s",
+                    label,
+                    request.unit,
+                )
+            else:
+                log.info(f"Granting secret {secret_id} to {request_relation.name}")
+                try:
+                    secret.grant(request_relation, unit=request_unit)
+                except ops.ModelError as exc:
+                    log.warning(
+                        "Unable to grant secret %s to %s: %s", secret_id, request.unit, exc
+                    )
+                else:
+                    # Intentionally set the tokens to empty strings in order to
+                    # be valid credentials for units still receiving these on schema 0
+                    # if None, these would be considered missing and the schema 0
+                    # parser would assume the relation wasn't ready.
+                    tokens.client_token = ""
+                    tokens.kubelet_token = ""
+                    tokens.proxy_token = ""
+                    tokens.secret_id = secret_id
+                    creds[request.user] = tokens.model_dump(by_alias=True, exclude_none=True)
         else:
             creds[request.user] = tokens.model_dump(by_alias=True, exclude_none=True)
 
