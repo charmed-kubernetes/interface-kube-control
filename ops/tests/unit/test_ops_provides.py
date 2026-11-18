@@ -12,6 +12,7 @@ import pytest
 import yaml
 from ops.charm import CharmBase
 from ops.interface_kube_control import KubeControlProvides
+from ops.interface_kube_control.model import Creds
 
 
 @pytest.fixture(scope="function")
@@ -357,3 +358,61 @@ def test_sign_auth_requests_existing_secret_without_id(
     creds = json.loads(relation.data[kube_control_provider.unit]["creds"])
     assert creds["system:node:node-2"]["secret-id"] == "abcd::1234"
     resolved.grant.assert_called_once()
+
+
+SCHEMA0_ENTRY = Creds(
+    scope="requirer/1",
+    client_token="old-client",
+    kubelet_token="old-kubelet",
+    proxy_token="old-proxy",
+).model_dump(by_alias=True, exclude_none=True)
+SCHEMA1_ENTRY = Creds(
+    scope="requirer/1",
+    secret_id="old::id",
+    client_token="",
+    kubelet_token="",
+    proxy_token="",
+).model_dump(by_alias=True, exclude_none=True)
+
+
+def _sign_with_existing(provider, relation_data, existing, configure):
+    """Sign all requests with `existing` creds already published for node-2."""
+    with mock_relations(1) as relations:
+        relation = relations.return_value[0]
+        mock_units(provider.charm.model, relation, relation_data)
+        relation.data[provider.unit]["creds"] = json.dumps({"system:node:node-2": existing})
+        with mock.patch(
+            "ops.interface_kube_control.KubeControlProvides._refresh_secret_content"
+        ) as refresh:
+            configure(refresh.return_value)
+            _sign_all(provider)
+    return json.loads(relation.data[provider.unit]["creds"])
+
+
+def _unresolvable(secret):
+    secret.id = None
+    secret.get_info.side_effect = ops.SecretNotFoundError
+
+
+def _grant_fails(secret):
+    secret.id = "abcd::1234"
+    secret.grant.side_effect = ops.ModelError("unit is dying")
+
+
+@pytest.mark.parametrize("configure", [_unresolvable, _grant_fails])
+def test_sign_auth_requests_failure_withholds_existing_plaintext(
+    configure, kube_control_provider, relation_data
+):
+    """Schema 0 tokens published earlier are removed when the schema 1 upgrade cannot complete."""
+    creds = _sign_with_existing(kube_control_provider, relation_data, SCHEMA0_ENTRY, configure)
+    assert "system:node:node-2" not in creds
+    assert creds["system:node:node-1"]["client_token"] == "client"
+
+
+@pytest.mark.parametrize("configure", [_unresolvable, _grant_fails])
+def test_sign_auth_requests_failure_keeps_existing_secret_entry(
+    configure, kube_control_provider, relation_data
+):
+    """An entry that only references a secret holds no tokens and survives a failed grant."""
+    creds = _sign_with_existing(kube_control_provider, relation_data, SCHEMA1_ENTRY, configure)
+    assert creds["system:node:node-2"] == SCHEMA1_ENTRY
