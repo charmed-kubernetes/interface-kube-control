@@ -229,22 +229,6 @@ class KubeControlProvides(ops.Object):
         for relation in self.relations:
             relation.data[self.unit]["creds"] = value
 
-    @staticmethod
-    def _withhold_plaintext(creds: dict, user: "str | None") -> None:
-        """Drop a previously published entry for `user` if it carries plaintext tokens.
-
-        Called when a schema 1 grant cannot be completed: the unit must not keep
-        receiving plaintext tokens it published under schema 0. Entries that only
-        reference a secret hold no tokens and are kept.
-        """
-        existing = creds.get(user)
-        if not existing:
-            return
-        entry = Creds(**existing)
-        if entry.client_token or entry.kubelet_token or entry.proxy_token:
-            log.info("Withholding previously published plaintext creds for %s", user)
-            del creds[user]
-
     def sign_auth_request(
         self, request: AuthRequest, client_token, kubelet_token, proxy_token
     ) -> None:
@@ -287,7 +271,6 @@ class KubeControlProvides(ops.Object):
                     label,
                     request.unit,
                 )
-                self._withhold_plaintext(creds, request.user)
             else:
                 log.info(f"Granting secret {secret_id} to {request_relation.name}")
                 try:
@@ -296,7 +279,6 @@ class KubeControlProvides(ops.Object):
                     log.warning(
                         "Unable to grant secret %s to %s: %s", secret_id, request.unit, exc
                     )
-                    self._withhold_plaintext(creds, request.user)
                 else:
                     # Intentionally set the tokens to empty strings in order to
                     # be valid credentials for units still receiving these on schema 0
