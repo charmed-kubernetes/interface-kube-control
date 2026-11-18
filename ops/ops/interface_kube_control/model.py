@@ -1,18 +1,16 @@
+import json
+import re
+from typing import Any, ClassVar, Dict, List, Optional, Pattern
+
+import ops
 from pydantic import (
-    ConfigDict,
-    Field,
     AnyHttpUrl,
     BaseModel,
+    ConfigDict,
+    Field,
     GetCoreSchemaHandler,
     Json,
 )
-
-import json
-import re
-from typing import Any, ClassVar, List, Dict, Optional, Pattern
-
-import ops
-
 from pydantic_core import core_schema
 
 

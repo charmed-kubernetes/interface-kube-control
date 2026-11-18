@@ -2,14 +2,14 @@
 # See LICENSE file for licensing details.
 import contextlib
 import json
-import unittest.mock as mock
 from collections import defaultdict
 from pathlib import Path
+from typing import ClassVar
+from unittest import mock
 
 import ops
 import pytest
 import yaml
-
 from ops.charm import CharmBase
 from ops.interface_kube_control import KubeControlProvides
 
@@ -23,14 +23,14 @@ def kube_control_provider():
 
 @pytest.fixture()
 def relation_data():
-    yield yaml.safe_load_all(Path("tests/data/kube_control_request.yaml").open())
+    yield yaml.safe_load_all(Path("tests/data/kube_control_request.yaml").read_text())
 
 
 @contextlib.contextmanager
 def mock_relations(num):
     class Relation(mock.MagicMock):
-        data = defaultdict(dict)
-        units = []
+        data: ClassVar = defaultdict(dict)
+        units: ClassVar = []
 
     with mock.patch(
         "ops.interface_kube_control.KubeControlProvides.relations",
