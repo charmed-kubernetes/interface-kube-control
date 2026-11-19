@@ -57,6 +57,16 @@ plugins = "pydantic.mypy"
 line-length = 99
 extend-exclude = ["__pycache__", "*.egg_info"]
 
+[tool.ruff.lint]
+# typing.List/Dict/Optional must stay: pydantic evaluates these annotations at runtime and
+# the package supports Python 3.8, where `list[...]` and `X | None` are not valid.
+ignore = ["FA100"]
+
+[tool.ruff.lint.isort]
+# `ops` is the Juju framework; ruff mistakes it for first party because this package's
+# source tree is also named `ops`.
+known-third-party = ["ops"]
+
 [tool.setuptools]
 zip-safe = true
 
@@ -65,7 +75,7 @@ namespaces = true
 
 [dependency-groups]
 format = [
-    "ruff"
+    "ruff==0.17.5"
 ]
 lint = [
     "mypy",

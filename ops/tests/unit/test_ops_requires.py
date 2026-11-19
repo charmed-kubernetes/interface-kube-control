@@ -1,11 +1,10 @@
 # Copyright 2022 Canonical Ltd.
 # See LICENSE file for licensing details.
-import unittest.mock as mock
 from pathlib import Path
+from unittest import mock
 
 import pytest
 import yaml
-
 from ops.charm import CharmBase, RelationBrokenEvent
 from ops.interface_kube_control import KubeControlRequirer
 
@@ -26,7 +25,7 @@ def mock_ca_cert(tmpdir):
 
 @pytest.fixture()
 def relation_data():
-    yield yaml.safe_load(Path("tests/data/kube_control_data.yaml").open())
+    yield yaml.safe_load(Path("tests/data/kube_control_data.yaml").read_text())
 
 
 @pytest.mark.parametrize(

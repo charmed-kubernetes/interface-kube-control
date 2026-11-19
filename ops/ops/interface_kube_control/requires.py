@@ -13,10 +13,9 @@ from os import PathLike
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
+import ops
 import yaml
 from pydantic import ValidationError
-
-import ops
 
 from .model import AuthRequest, Creds, Data, Label, Taint
 
@@ -86,7 +85,7 @@ class KubeControlRequirer(ops.Object):
     def is_ready(self):
         """Whether the request for this instance has been completed."""
         try:
-            self._data
+            _ = self._data
         except ValidationError as ve:
             log.error(f"{self.endpoint} relation data not yet valid. ({ve}")
             return False
@@ -216,7 +215,7 @@ class KubeControlRequirer(ops.Object):
         """
         log.info("Setting gpu=%s on kube-control relation", enabled)
         for relation in self.model.relations:
-            relation.data[self.model.unit].update(dict(gpu=enabled))
+            relation.data[self.model.unit].update({"gpu": enabled})
 
     def get_cluster_tag(self):
         """

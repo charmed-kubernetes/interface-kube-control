@@ -1,7 +1,7 @@
 import ipaddress
 import json
 import logging
-from typing import Generator, List, Tuple
+from typing import Generator, List, Tuple, cast
 
 import ops
 from pydantic import TypeAdapter
@@ -77,10 +77,15 @@ class KubeControlProvides(ops.Object):
         secret = self._refresh_secret_content(
             "ca-certificate", content, "Kubernetes API endpoint CA certificate"
         )
+
         for relation in self.relations:
-            if secret.id:
+            try:
+                # grant() looks up the id of a secret fetched by label, so secret.id
+                # is set after it. An unknown secret raises SecretNotFoundError.
                 secret.grant(relation)
-                relation.data[self.unit]["ca-certificate-secret-id"] = secret.id
+                relation.data[self.unit]["ca-certificate-secret-id"] = cast(str, secret.id)
+            except ops.ModelError as exc:
+                log.warning("Unable to publish CA secret to relation %s: %s", relation.id, exc)
 
     def set_cluster_name(self, cluster_name) -> None:
         """Send the cluster name to the remote units."""
@@ -241,9 +246,21 @@ class KubeControlProvides(ops.Object):
             label = f"{request.user}-creds"
             description = f"Credentials for {request.user}"
             secret = self._refresh_secret_content(label, content, description)
-            if secret.id:
-                log.info(f"Granting secret {secret.id} to {request_relation.name}")
+            try:
+                # grant() looks up the id of a secret fetched by label. An unknown
+                # secret raises SecretNotFoundError, which is a ModelError.
                 secret.grant(request_relation, unit=request_unit)
+            except ops.ModelError as exc:
+                # No schema-0 fallback: that would publish plaintext tokens
+                # to a unit that asked for secrets.
+                log.warning(
+                    "Unable to grant secret %s to %s: %s; not sending credentials",
+                    label,
+                    request.unit,
+                    exc,
+                )
+            else:
+                log.info(f"Granted secret {secret.id} to {request_relation.name}")
                 # Intentionally set the tokens to empty strings in order to
                 # be valid credentials for units still receiving these on schema 0
                 # if None, these would be considered missing and the schema 0
