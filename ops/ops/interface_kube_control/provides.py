@@ -1,7 +1,7 @@
 import ipaddress
 import json
 import logging
-from typing import Generator, List, Tuple
+from typing import Generator, List, Tuple, cast
 
 import ops
 from pydantic import TypeAdapter
@@ -61,16 +61,6 @@ class KubeControlProvides(ops.Object):
         """List of relations on this endpoint."""
         return self.charm.model.relations[self.endpoint]
 
-    @staticmethod
-    def _secret_locator_id(secret: ops.Secret) -> "str | None":
-        """Resolve a secret locator ID even when fetched by label only."""
-        if secret.id:
-            return secret.id
-        try:
-            return secret.get_info().id
-        except ops.SecretNotFoundError:
-            return None
-
     def set_api_endpoints(self, endpoints) -> None:
         """Send the list of API endpoint URLs to which workers should connect."""
         endpoints = json.dumps(endpoints)
@@ -87,17 +77,13 @@ class KubeControlProvides(ops.Object):
         secret = self._refresh_secret_content(
             "ca-certificate", content, "Kubernetes API endpoint CA certificate"
         )
-        secret_id = self._secret_locator_id(secret)
-        if not secret_id:
-            log.warning("Unable to resolve id of the CA certificate secret; not publishing it")
-            return
-        if not secret.id:
-            secret = self.charm.model.get_secret(id=secret_id, label="ca-certificate")
 
         for relation in self.relations:
             try:
+                # grant() looks up the id of a secret fetched by label, so secret.id
+                # is set after it. An unknown secret raises SecretNotFoundError.
                 secret.grant(relation)
-                relation.data[self.unit]["ca-certificate-secret-id"] = secret_id
+                relation.data[self.unit]["ca-certificate-secret-id"] = cast(str, secret.id)
             except ops.ModelError as exc:
                 log.warning("Unable to publish CA secret to relation %s: %s", relation.id, exc)
 
@@ -260,35 +246,30 @@ class KubeControlProvides(ops.Object):
             label = f"{request.user}-creds"
             description = f"Credentials for {request.user}"
             secret = self._refresh_secret_content(label, content, description)
-            secret_id = self._secret_locator_id(secret)
-            if secret_id and not secret.id:
-                secret = self.charm.model.get_secret(id=secret_id, label=label)
-            if not secret_id:
+            try:
+                # grant() looks up the id of a secret fetched by label. An unknown
+                # secret raises SecretNotFoundError, which is a ModelError.
+                secret.grant(request_relation, unit=request_unit)
+            except ops.ModelError as exc:
                 # No schema-0 fallback: that would publish plaintext tokens
                 # to a unit that asked for secrets.
                 log.warning(
-                    "Unable to resolve id of secret %s; not sending credentials to %s",
+                    "Unable to grant secret %s to %s: %s; not sending credentials",
                     label,
                     request.unit,
+                    exc,
                 )
             else:
-                log.info(f"Granting secret {secret_id} to {request_relation.name}")
-                try:
-                    secret.grant(request_relation, unit=request_unit)
-                except ops.ModelError as exc:
-                    log.warning(
-                        "Unable to grant secret %s to %s: %s", secret_id, request.unit, exc
-                    )
-                else:
-                    # Intentionally set the tokens to empty strings in order to
-                    # be valid credentials for units still receiving these on schema 0
-                    # if None, these would be considered missing and the schema 0
-                    # parser would assume the relation wasn't ready.
-                    tokens.client_token = ""
-                    tokens.kubelet_token = ""
-                    tokens.proxy_token = ""
-                    tokens.secret_id = secret_id
-                    creds[request.user] = tokens.model_dump(by_alias=True, exclude_none=True)
+                log.info(f"Granted secret {secret.id} to {request_relation.name}")
+                # Intentionally set the tokens to empty strings in order to
+                # be valid credentials for units still receiving these on schema 0
+                # if None, these would be considered missing and the schema 0
+                # parser would assume the relation wasn't ready.
+                tokens.client_token = ""
+                tokens.kubelet_token = ""
+                tokens.proxy_token = ""
+                tokens.secret_id = secret.id
+                creds[request.user] = tokens.model_dump(by_alias=True, exclude_none=True)
         else:
             creds[request.user] = tokens.model_dump(by_alias=True, exclude_none=True)
 
